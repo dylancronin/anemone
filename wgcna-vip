@@ -1,4 +1,12 @@
 #!/usr/bin/env python3
+"""
+wgcna-vip: A command-line orchestrator for WGCNA and PLS-VIP analyses.
+
+This script parses a YAML configuration file containing pathways and parameters,
+routes command-line subcommands (threshold, network, correlate, pls) to their 
+corresponding R scripts, and manages execution and real-time log output.
+"""
+
 import argparse
 import os
 import sys
@@ -6,23 +14,33 @@ import yaml
 import subprocess
 
 def run_r_script(script_path, args):
-    """Helper to run R script with arguments and print outputs in real-time."""
+    """
+    Executes an R script as a subprocess, streaming its stdout/stderr 
+    output in real-time to the python console.
+    
+    Args:
+        script_path (str): Absolute or relative path to the target R script.
+        args (list): List of string arguments to pass to the R script.
+    """
     cmd = ["Rscript", script_path] + args
-    print(f"Executing: {' '.join(cmd)}")
+    print(f"Executing: {' '.join(cmd)}\n")
     try:
-        # Run process and pipe output to stdout/stderr in real-time
+        # Popen allows us to read stdout in real-time while the process executes
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stderr=subprocess.STDOUT,  # Merge stderr into stdout so they are interleaved chronologically
             text=True,
-            bufsize=1
+            bufsize=1                  # Line-buffered output
         )
         
+        # Read R output line-by-line in real-time
         for line in process.stdout:
             print(line, end="")
             
         process.wait()
+        
+        # Exit with process return code if script fails
         if process.returncode != 0:
             print(f"\nError: R script failed with exit code {process.returncode}.", file=sys.stderr)
             sys.exit(process.returncode)
@@ -31,9 +49,12 @@ def run_r_script(script_path, args):
         sys.exit(1)
 
 def main():
-    # Locate scripts directory relative to this file
+    # Find the directory where this script is located. This allows us to find the 
+    # relative R helper scripts inside the 'scripts/' directory regardless of 
+    # where the user calls 'wgcna-vip' from.
     script_dir = os.path.dirname(os.path.realpath(__file__))
     
+    # Set up CLI parser requiring a YAML configuration file path
     parser = argparse.ArgumentParser(
         description="wgcna-vip: CLI tool for WGCNA and PLS-VIP analysis"
     )
@@ -43,32 +64,36 @@ def main():
         help="Path to the YAML configuration file"
     )
     
+    # Add subparsers for each step of the pipeline
     subparsers = parser.add_subparsers(dest="command", required=True)
     
-    # Subcommands
+    # Subcommand 1: thresholding diagnostics
     subparsers.add_parser(
         "threshold",
         help="Perform prevalence filtering and plot soft-threshold powers to determine scale-free topology fit"
     )
     
+    # Subcommand 2: blockwise network modules construction
     subparsers.add_parser(
         "network",
         help="Construct the co-expression network and identify modules"
     )
     
+    # Subcommand 3: module-trait correlation analysis
     subparsers.add_parser(
         "correlate",
         help="Correlate module eigengenes with metadata traits"
     )
     
+    # Subcommand 4: PLS regression and VIP variable importance calculations
     subparsers.add_parser(
-        "spls",
+        "pls",
         help="Run PLS regression and compute VIP scores for specified module/parameter pairs"
     )
     
     args = parser.parse_args()
     
-    # Read config file
+    # 1. Parse and validate the YAML configuration file
     if not os.path.exists(args.config):
         print(f"Error: Configuration file '{args.config}' not found.", file=sys.stderr)
         sys.exit(1)
@@ -80,11 +105,10 @@ def main():
         print(f"Error reading configuration file: {e}", file=sys.stderr)
         sys.exit(1)
         
-    # Create output directory if it doesn't exist
+    # 2. Extract configuration variables (supplying defaults if missing)
     outdir = config.get("output_dir", "output")
     os.makedirs(outdir, exist_ok=True)
     
-    # Common arguments for data preparation R scripts
     counts_file = config.get("counts_file", "")
     metadata_file = config.get("metadata_file", "")
     taxonomy_file = config.get("taxonomy_file", "")
@@ -92,8 +116,9 @@ def main():
     min_num_samples = str(config.get("min_num_samples", 10))
     transform = config.get("transform", "hellinger")
     
-    # Subcommand routing
+    # 3. Route to R scripts with mapped arguments
     if args.command == "threshold":
+        # threshold.R does prevalence filtering, hellinger transformation, and scans soft powers (1-20)
         r_script = os.path.join(script_dir, "scripts", "threshold.R")
         r_args = [
             "--counts", counts_file,
@@ -109,6 +134,7 @@ def main():
         run_r_script(r_script, r_args)
         
     elif args.command == "network":
+        # network.R builds the TOM and module membership using blockwiseModules for the chosen soft power
         r_script = os.path.join(script_dir, "scripts", "network.R")
         power = str(config.get("power", 14))
         tom_type = config.get("TOMType", "signed")
@@ -135,6 +161,7 @@ def main():
         run_r_script(r_script, r_args)
         
     elif args.command == "correlate":
+        # correlate.R computes module eigengene correlations with user-selected metadata traits
         r_script = os.path.join(script_dir, "scripts", "correlate.R")
         traits = ",".join(config.get("traits", []))
         
@@ -146,23 +173,30 @@ def main():
         ]
         run_r_script(r_script, r_args)
         
-    elif args.command == "spls":
-        r_script = os.path.join(script_dir, "scripts", "spls.R")
-        power = str(config.get("power", 14))
-        spls_analyses = config.get("spls_analyses", [])
+    elif args.command == "pls":
+        # pls.R fits PLS regression models and computes VIP score rankings for module-parameter pairs
+        r_script = os.path.join(script_dir, "scripts", "pls.R")
+        power = str(config.get("power", 12))
         
-        if not spls_analyses:
-            print("Warning: No spls_analyses defined in configuration file.", file=sys.stderr)
+        # Support both 'pls_analyses' and 'spls_analyses' configuration keys for convenience
+        pls_analyses = config.get("pls_analyses", config.get("spls_analyses", []))
+        
+        if not pls_analyses:
+            print("Warning: No pls_analyses (or spls_analyses) defined in configuration file.", file=sys.stderr)
             sys.exit(0)
             
-        for analysis in spls_analyses:
+        # Loop through each target analysis block and execute pls.R sequentially
+        for idx, analysis in enumerate(pls_analyses, 1):
             module = analysis.get("module")
             parameter = analysis.get("parameter")
             if not module or not parameter:
-                print(f"Skipping invalid sPLS analysis block: {analysis}", file=sys.stderr)
+                print(f"Skipping invalid PLS analysis block #{idx}: {analysis}", file=sys.stderr)
                 continue
                 
-            print(f"\n--- Running sPLS-VIP for Module '{module}' vs Trait '{parameter}' ---")
+            print(f"\n======================================================================")
+            print(f"Running PLS-VIP ({idx}/{len(pls_analyses)}): Module '{module}' vs Trait '{parameter}'")
+            print(f"======================================================================")
+            
             r_args = [
                 "--counts", counts_file,
                 "--metadata", metadata_file,
