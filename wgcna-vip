@@ -1,0 +1,183 @@
+#!/usr/bin/env python3
+import argparse
+import os
+import sys
+import yaml
+import subprocess
+
+def run_r_script(script_path, args):
+    """Helper to run R script with arguments and print outputs in real-time."""
+    cmd = ["Rscript", script_path] + args
+    print(f"Executing: {' '.join(cmd)}")
+    try:
+        # Run process and pipe output to stdout/stderr in real-time
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1
+        )
+        
+        for line in process.stdout:
+            print(line, end="")
+            
+        process.wait()
+        if process.returncode != 0:
+            print(f"\nError: R script failed with exit code {process.returncode}.", file=sys.stderr)
+            sys.exit(process.returncode)
+    except Exception as e:
+        print(f"\nError executing process: {e}", file=sys.stderr)
+        sys.exit(1)
+
+def main():
+    # Locate scripts directory relative to this file
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    
+    parser = argparse.ArgumentParser(
+        description="wgcna-vip: CLI tool for WGCNA and PLS-VIP analysis"
+    )
+    parser.add_argument(
+        "--config",
+        required=True,
+        help="Path to the YAML configuration file"
+    )
+    
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    
+    # Subcommands
+    subparsers.add_parser(
+        "threshold",
+        help="Perform prevalence filtering and plot soft-threshold powers to determine scale-free topology fit"
+    )
+    
+    subparsers.add_parser(
+        "network",
+        help="Construct the co-expression network and identify modules"
+    )
+    
+    subparsers.add_parser(
+        "correlate",
+        help="Correlate module eigengenes with metadata traits"
+    )
+    
+    subparsers.add_parser(
+        "spls",
+        help="Run PLS regression and compute VIP scores for specified module/parameter pairs"
+    )
+    
+    args = parser.parse_args()
+    
+    # Read config file
+    if not os.path.exists(args.config):
+        print(f"Error: Configuration file '{args.config}' not found.", file=sys.stderr)
+        sys.exit(1)
+        
+    try:
+        with open(args.config, 'r') as f:
+            config = yaml.safe_load(f)
+    except Exception as e:
+        print(f"Error reading configuration file: {e}", file=sys.stderr)
+        sys.exit(1)
+        
+    # Create output directory if it doesn't exist
+    outdir = config.get("output_dir", "output")
+    os.makedirs(outdir, exist_ok=True)
+    
+    # Common arguments for data preparation R scripts
+    counts_file = config.get("counts_file", "")
+    metadata_file = config.get("metadata_file", "")
+    taxonomy_file = config.get("taxonomy_file", "")
+    sample_id_col = config.get("sample_id_col", "sample_id")
+    min_num_samples = str(config.get("min_num_samples", 10))
+    transform = config.get("transform", "hellinger")
+    
+    # Subcommand routing
+    if args.command == "threshold":
+        r_script = os.path.join(script_dir, "scripts", "threshold.R")
+        r_args = [
+            "--counts", counts_file,
+            "--metadata", metadata_file,
+            "--sample_id_col", sample_id_col,
+            "--outdir", outdir,
+            "--min_num_samples", min_num_samples,
+            "--transform", transform
+        ]
+        if taxonomy_file:
+            r_args += ["--taxonomy", taxonomy_file]
+            
+        run_r_script(r_script, r_args)
+        
+    elif args.command == "network":
+        r_script = os.path.join(script_dir, "scripts", "network.R")
+        power = str(config.get("power", 14))
+        tom_type = config.get("TOMType", "signed")
+        net_type = config.get("networkType", "signed")
+        merge_cut = str(config.get("mergeCutHeight", 0.01))
+        max_block = str(config.get("maxBlockSize", 1800))
+        
+        r_args = [
+            "--counts", counts_file,
+            "--metadata", metadata_file,
+            "--sample_id_col", sample_id_col,
+            "--outdir", outdir,
+            "--min_num_samples", min_num_samples,
+            "--transform", transform,
+            "--power", power,
+            "--TOMType", tom_type,
+            "--networkType", net_type,
+            "--mergeCutHeight", merge_cut,
+            "--maxBlockSize", max_block
+        ]
+        if taxonomy_file:
+            r_args += ["--taxonomy", taxonomy_file]
+            
+        run_r_script(r_script, r_args)
+        
+    elif args.command == "correlate":
+        r_script = os.path.join(script_dir, "scripts", "correlate.R")
+        traits = ",".join(config.get("traits", []))
+        
+        r_args = [
+            "--metadata", metadata_file,
+            "--sample_id_col", sample_id_col,
+            "--outdir", outdir,
+            "--traits", traits
+        ]
+        run_r_script(r_script, r_args)
+        
+    elif args.command == "spls":
+        r_script = os.path.join(script_dir, "scripts", "spls.R")
+        power = str(config.get("power", 14))
+        spls_analyses = config.get("spls_analyses", [])
+        
+        if not spls_analyses:
+            print("Warning: No spls_analyses defined in configuration file.", file=sys.stderr)
+            sys.exit(0)
+            
+        for analysis in spls_analyses:
+            module = analysis.get("module")
+            parameter = analysis.get("parameter")
+            if not module or not parameter:
+                print(f"Skipping invalid sPLS analysis block: {analysis}", file=sys.stderr)
+                continue
+                
+            print(f"\n--- Running sPLS-VIP for Module '{module}' vs Trait '{parameter}' ---")
+            r_args = [
+                "--counts", counts_file,
+                "--metadata", metadata_file,
+                "--sample_id_col", sample_id_col,
+                "--outdir", outdir,
+                "--min_num_samples", min_num_samples,
+                "--transform", transform,
+                "--power", power,
+                "--module", module,
+                "--parameter", parameter
+            ]
+            if taxonomy_file:
+                r_args += ["--taxonomy", taxonomy_file]
+                
+            run_r_script(r_script, r_args)
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,34 @@
+# WGCNA and PLS-VIP Analysis Configuration Template
+
+# 1. Input File Paths (Relative to execution directory or absolute paths)
+counts_file: "data/counts.csv"       # Taxa/genes as rows, samples as columns
+metadata_file: "data/metadata.csv"   # Samples as rows, metadata columns as traits
+taxonomy_file: "data/taxonomy.csv"   # (Optional) Taxa as rows, taxonomic levels as columns
+sample_id_col: "sample_id"           # Column in metadata matching counts column names
+
+# 2. Output Directory
+output_dir: "output"
+
+# 3. Preprocessing Parameters
+min_num_samples: 10                  # Keep taxa present in > min_num_samples samples
+transform: "hellinger"               # Preprocessing transformation: 'hellinger', 'relative', or 'none'
+
+# 4. Network Construction Parameters (WGCNA)
+power: 14                            # Soft-threshold power (choose after running 'threshold' step)
+TOMType: "signed"                    # Topological Overlap Matrix type
+networkType: "signed"                # Network type
+mergeCutHeight: 0.01                 # Cut height for merging similar modules
+maxBlockSize: 1800                   # Maximum block size for blockwise modules
+
+# 5. Metadata Traits to Correlate with Modules (Numeric traits)
+traits:
+  - "alphaC"
+  - "T_soil.deg_C"
+  - "DepthAvg__"
+
+# 6. PLS-VIP Target Analyses (Specific Module/Trait pairs)
+spls_analyses:
+  - module: "blue"
+    parameter: "alphaC"
+  - module: "blue"
+    parameter: "T_soil.deg_C"
