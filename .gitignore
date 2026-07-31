@@ -1,0 +1,8 @@
+# Ignore pipeline outputs
+output/
+
+# Ignore R user files and workspace history
+.Rhistory
+.RData
+.Ruserdata
+*.RData

@@ -11,7 +11,7 @@ option_list <- list(
   make_option("--taxonomy", type="character", default=NULL, help="Path to taxonomy CSV/TSV file [optional]"),
   make_option("--sample_id_col", type="character", default="sample_id", help="Column name for sample IDs in metadata"),
   make_option("--outdir", type="character", default="output", help="Output directory path"),
-  make_option("--min_num_samples", type="integer", default=10, help="Minimum sample count threshold for filtering"),
+  make_option("--min_prevalence_pct", type="double", default=10, help="Minimum prevalence percentage of samples (0-100)"),
   make_option("--transform", type="character", default="hellinger", help="Data transformation type"),
   make_option("--power", type="integer", default=14, help="Soft thresholding power"),
   make_option("--TOMType", type="character", default="signed", help="TOM type (signed/unsigned)"),
@@ -22,7 +22,8 @@ option_list <- list(
 
 opt <- parse_args(OptionParser(option_list=option_list))
 
-outdir <- opt$outdir
+outdir <- file.path(opt$outdir, "network")
+dir.create(outdir, recursive = TRUE, showWarnings = FALSE)
 power <- opt$power
 tom_type <- opt$TOMType
 net_type <- opt$networkType
@@ -36,7 +37,7 @@ suppressPackageStartupMessages({
 })
 
 # 3. Load preprocessed data cache or preprocess on the fly
-prep_path <- file.path(outdir, "preprocessed_data.RData")
+prep_path <- file.path(opt$outdir, "preprocess", "preprocessed_data.RData")
 
 if (file.exists(prep_path)) {
   cat(sprintf("Loading cached preprocessed data from: %s\n", prep_path))
@@ -55,8 +56,13 @@ if (file.exists(prep_path)) {
   
   otumat <- as.matrix(counts)
   otumat[is.na(otumat)] <- 0
+  
+  # Calculate min_num_samples from prevalence percentage
+  n_samples <- ncol(otumat)
+  min_num_samples <- ceiling((opt$min_prevalence_pct / 100) * n_samples)
+  
   vals <- rowSums(otumat > 0)
-  otumat_filtered <- otumat[vals > opt$min_num_samples, , drop = FALSE]
+  otumat_filtered <- otumat[vals >= min_num_samples, , drop = FALSE]
   
   data_t <- t(otumat_filtered)
   if (opt$transform == "hellinger") {
@@ -120,6 +126,44 @@ rownames(pops) <- rownames(data_transformed)
 eigengenes_csv <- file.path(outdir, "module_eigengenes.csv")
 write.csv(pops, file = eigengenes_csv, row.names = TRUE)
 cat(sprintf("Module eigengenes saved to: %s\n", eigengenes_csv))
+
+# Plot the unmerged module eigengene clustering dendrogram to help choose mergeCutHeight
+cat("Generating unmerged module eigengene clustering dendrogram...\n")
+unmerged_colors <- labels2colors(net$unmergedColors)
+unmerged_eig <- moduleEigengenes(data_transformed, unmerged_colors)$eigengenes
+unmerged_pops <- orderMEs(unmerged_eig)
+rownames(unmerged_pops) <- rownames(data_transformed)
+
+unmerged_pdf <- file.path(outdir, "unmerged_module_eigengene_clustering.pdf")
+graphics.off() # Close any dangling graphics devices
+unlink(unmerged_pdf) # Force delete existing PDF if present
+pdf(unmerged_pdf, width = 8, height = 6)
+unmerged_dissim <- 1 - cor(unmerged_pops)
+unmerged_meTree <- hclust(as.dist(unmerged_dissim), method = "average")
+
+par(mar = c(5, 5, 4, 2))
+plot(unmerged_meTree, main = "Unmerged Eigengene dendrogram (Before Merging)", xlab = "", sub = "", cex = 0.8)
+abline(h = seq(0, 2, by = 0.05), col = "gray80", lty = "dashed", lwd = 0.5)
+dev.off()
+
+# Plot the merged module eigengene clustering dendrogram to verify final state
+cat("Generating merged module eigengene clustering dendrogram...\n")
+merged_pdf <- file.path(outdir, "module_eigengene_clustering.pdf")
+unlink(merged_pdf) # Force delete existing PDF if present
+pdf(merged_pdf, width = 8, height = 6)
+
+# Calculate dissimilarity and cluster on merged eigengenes
+dissim <- 1 - cor(pops)
+meTree <- hclust(as.dist(dissim), method = "average")
+
+# Plot with native y-axis to ensure perfect alignment
+par(mar = c(5, 5, 4, 2))
+plot(meTree, main = "Merged Eigengene dendrogram (Final State)", xlab = "", sub = "", cex = 0.8)
+
+# Add horizontal dashed gridlines for easy reading
+abline(h = seq(0, 2, by = 0.05), col = "gray80", lty = "dashed", lwd = 0.5)
+
+dev.off()
 
 # 7. Save WGCNA outputs to RData for downstream scripts (correlate, pls)
 network_rdata <- file.path(outdir, "network_construction.RData")
