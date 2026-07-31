@@ -108,7 +108,18 @@ if (length(samples_intersect) == 0) {
 }
 
 X <- as.matrix(X_data[samples_intersect, , drop = FALSE])
-y <- as.numeric(metadata[samples_intersect, target_param])
+y_raw <- metadata[samples_intersect, target_param]
+if (!is.numeric(y_raw)) {
+  factor_vals <- as.factor(y_raw)
+  levels_map <- levels(factor_vals)
+  y <- as.numeric(factor_vals)
+  
+  map_details <- paste(sprintf("'%s'=%d", levels_map, 1:length(levels_map)), collapse=", ")
+  warning(sprintf("Target parameter '%s' is categorical and has been auto-encoded to numeric using levels: [%s]", 
+                  target_param, map_details), call. = FALSE)
+} else {
+  y <- as.numeric(y_raw)
+}
 
 # Remove samples with NA in y
 valid_samples <- !is.na(y)

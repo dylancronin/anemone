@@ -87,6 +87,14 @@ traits:
 
 The tool is directly executable: `./wgcna-vip [subcommand] --config [config.yaml]`
 
+### Run the Entire Pipeline End-to-End
+You can run the complete pipeline sequentially (threshold, network, correlate, and pls-vip) in one go:
+```bash
+./wgcna-vip run --config wgcna_config_example.yaml
+```
+
+### Run Steps Individually
+
 ### Step 1: soft-Thresholding Analysis
 Tests how different prevalence filtering cutoffs (`5%`, `10%`, `15%`, `20%`, `25%`, and `30%`) affect your scale-free topology fit ($R^2$) and mean connectivity.
 ```bash

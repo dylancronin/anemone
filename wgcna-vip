@@ -3,7 +3,7 @@
 wgcna-vip: A command-line orchestrator for WGCNA and PLS-VIP analyses.
 
 This script parses a YAML configuration file containing pathways and parameters,
-routes command-line subcommands (threshold, network, correlate, pls) to their 
+routes command-line subcommands (threshold, network, correlate, pls, run) to their 
 corresponding R scripts, and manages execution and real-time log output.
 """
 
@@ -17,10 +17,6 @@ def run_r_script(script_path, args):
     """
     Executes an R script as a subprocess, streaming its stdout/stderr 
     output in real-time to the python console.
-    
-    Args:
-        script_path (str): Absolute or relative path to the target R script.
-        args (list): List of string arguments to pass to the R script.
     """
     cmd = ["Rscript", script_path] + args
     print(f"Executing: {' '.join(cmd)}\n")
@@ -48,14 +44,136 @@ def run_r_script(script_path, args):
         print(f"\nError executing process: {e}", file=sys.stderr)
         sys.exit(1)
 
+def run_threshold(script_dir, config, outdir, counts_file, metadata_file, taxonomy_file, sample_id_col, min_prevalence_pct, transform):
+    r_script = os.path.join(script_dir, "scripts", "threshold.R")
+    r_args = [
+        "--counts", counts_file,
+        "--metadata", metadata_file,
+        "--sample_id_col", sample_id_col,
+        "--outdir", outdir,
+        "--min_prevalence_pct", min_prevalence_pct,
+        "--transform", transform
+    ]
+    if taxonomy_file:
+        r_args += ["--taxonomy", taxonomy_file]
+    run_r_script(r_script, r_args)
+
+def run_network(script_dir, config, outdir, counts_file, metadata_file, taxonomy_file, sample_id_col, min_prevalence_pct, transform):
+    r_script = os.path.join(script_dir, "scripts", "network.R")
+    power = str(config.get("power", 14))
+    tom_type = config.get("TOMType", "signed")
+    net_type = config.get("networkType", "signed")
+    merge_cut = str(config.get("mergeCutHeight", 0.01))
+    max_block = str(config.get("maxBlockSize", 1800))
+    
+    r_args = [
+        "--counts", counts_file,
+        "--metadata", metadata_file,
+        "--sample_id_col", sample_id_col,
+        "--outdir", outdir,
+        "--min_prevalence_pct", min_prevalence_pct,
+        "--transform", transform,
+        "--power", power,
+        "--TOMType", tom_type,
+        "--networkType", net_type,
+        "--mergeCutHeight", merge_cut,
+        "--maxBlockSize", max_block
+    ]
+    if taxonomy_file:
+        r_args += ["--taxonomy", taxonomy_file]
+    run_r_script(r_script, r_args)
+
+def run_correlate(script_dir, config, outdir, metadata_file, sample_id_col):
+    r_script = os.path.join(script_dir, "scripts", "correlate.R")
+    traits = ",".join(config.get("traits", []))
+    
+    r_args = [
+        "--metadata", metadata_file,
+        "--sample_id_col", sample_id_col,
+        "--outdir", outdir,
+        "--traits", traits
+    ]
+    run_r_script(r_script, r_args)
+
+def run_pls(script_dir, config, outdir, counts_file, metadata_file, taxonomy_file, sample_id_col, min_prevalence_pct, transform):
+    r_script = os.path.join(script_dir, "scripts", "pls.R")
+    power = str(config.get("power", 12))
+    min_r2 = str(config.get("pls_min_r2", 0.30))
+    min_cor = float(config.get("pls_min_cor", 0.30))
+    
+    pls_analyses = config.get("pls_analyses", [])
+    
+    # If pls_analyses is empty/omitted, auto-detect significant correlations (q-value < 0.05 and |r| >= min_cor)
+    if not pls_analyses:
+        longform_path = os.path.join(outdir, "correlation", "longform_module_trait_table.csv")
+        if os.path.exists(longform_path):
+            print(f"No target analyses specified. Automatically loading module-trait pairs with q-value < 0.05 and |Correlation| >= {min_cor} from: {longform_path}")
+            import csv
+            try:
+                with open(longform_path, mode='r') as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        p_adj = float(row.get('p.adj', 1.0))
+                        correlation = float(row.get('Correlation', 0.0))
+                        if p_adj < 0.05 and abs(correlation) >= min_cor:
+                            # Strip 'ME' prefix from module name if present (e.g., MEblue -> blue)
+                            mod_name = row.get('Module', '')
+                            if mod_name.startswith('ME'):
+                                mod_name = mod_name[2:]
+                            # Skip 'grey' module as it represents unassigned genes/noise
+                            if mod_name.lower() == 'grey':
+                                continue
+                            pls_analyses.append({
+                                "module": mod_name,
+                                "parameter": row.get('Metadata_Parameter')
+                            })
+            except Exception as e:
+                print(f"Error reading correlation table: {e}", file=sys.stderr)
+        else:
+            print("Error: No pls_analyses defined in configuration, and no longform_module_trait_table.csv found.", file=sys.stderr)
+            print("Please define pls_analyses in config or run 'correlate' step first.", file=sys.stderr)
+            sys.exit(1)
+            
+    if not pls_analyses:
+        print("No module-parameter pairs met the significance and correlation thresholds. Skipping PLS analysis.")
+        return
+        
+    print(f"Found {len(pls_analyses)} target pairs to analyze with PLS-VIP.")
+    
+    # Loop through each target analysis block and execute pls.R sequentially
+    for idx, analysis in enumerate(pls_analyses, 1):
+        module = analysis.get("module")
+        parameter = analysis.get("parameter")
+        if not module or not parameter:
+            print(f"Skipping invalid PLS analysis block #{idx}: {analysis}", file=sys.stderr)
+            continue
+            
+        print(f"\n======================================================================")
+        print(f"Running PLS-VIP ({idx}/{len(pls_analyses)}): Module '{module}' vs Trait '{parameter}'")
+        print(f"======================================================================")
+        
+        r_args = [
+            "--counts", counts_file,
+            "--metadata", metadata_file,
+            "--sample_id_col", sample_id_col,
+            "--outdir", outdir,
+            "--min_prevalence_pct", min_prevalence_pct,
+            "--transform", transform,
+            "--power", power,
+            "--module", module,
+            "--parameter", parameter,
+            "--min_r2", min_r2
+        ]
+        if taxonomy_file:
+            r_args += ["--taxonomy", taxonomy_file]
+            
+        run_r_script(r_script, r_args)
+
 def main():
-    # Find the directory where this script is located. This allows us to find the 
-    # relative R helper scripts inside the 'scripts/' directory regardless of 
-    # where the user calls 'wgcna-vip' from.
+    # Find the directory where this script is located.
     script_dir = os.path.dirname(os.path.realpath(__file__))
     
     # Set up CLI parser requiring a YAML configuration file path
-    # Create a shared parent parser that holds the config option
     parent_parser = argparse.ArgumentParser(add_help=False)
     parent_parser.add_argument(
         "--config",
@@ -70,32 +188,35 @@ def main():
     # Add subparsers for each step of the pipeline
     subparsers = parser.add_subparsers(dest="command", required=True)
     
-    # Subcommand 1: thresholding diagnostics
+    # Subcommands
     subparsers.add_parser(
         "threshold",
         parents=[parent_parser],
         help="Perform prevalence filtering and plot soft-threshold powers to determine scale-free topology fit"
     )
     
-    # Subcommand 2: blockwise network modules construction
     subparsers.add_parser(
         "network",
         parents=[parent_parser],
         help="Construct the co-expression network and identify modules"
     )
     
-    # Subcommand 3: module-trait correlation analysis
     subparsers.add_parser(
         "correlate",
         parents=[parent_parser],
         help="Correlate module eigengenes with metadata traits"
     )
     
-    # Subcommand 4: PLS regression and VIP variable importance calculations
     subparsers.add_parser(
         "pls",
         parents=[parent_parser],
         help="Run PLS regression and compute VIP scores for specified module/parameter pairs"
+    )
+    
+    subparsers.add_parser(
+        "run",
+        parents=[parent_parser],
+        help="Run all steps in the pipeline sequentially end-to-end"
     )
     
     args = parser.parse_args()
@@ -112,7 +233,7 @@ def main():
         print(f"Error reading configuration file: {e}", file=sys.stderr)
         sys.exit(1)
         
-    # 2. Extract configuration variables (supplying defaults if missing)
+    # 2. Extract configuration variables
     outdir = config.get("output_dir", "output")
     os.makedirs(outdir, exist_ok=True)
     
@@ -123,137 +244,29 @@ def main():
     min_prevalence_pct = str(config.get("min_prevalence_pct", 10))
     transform = config.get("transform", "hellinger")
     
-    # 3. Route to R scripts with mapped arguments
+    # 3. Route to helpers
     if args.command == "threshold":
-        # threshold.R does prevalence filtering, hellinger transformation, and scans soft powers (1-20)
-        r_script = os.path.join(script_dir, "scripts", "threshold.R")
-        r_args = [
-            "--counts", counts_file,
-            "--metadata", metadata_file,
-            "--sample_id_col", sample_id_col,
-            "--outdir", outdir,
-            "--min_prevalence_pct", min_prevalence_pct,
-            "--transform", transform
-        ]
-        if taxonomy_file:
-            r_args += ["--taxonomy", taxonomy_file]
-            
-        run_r_script(r_script, r_args)
-        
+        run_threshold(script_dir, config, outdir, counts_file, metadata_file, taxonomy_file, sample_id_col, min_prevalence_pct, transform)
     elif args.command == "network":
-        # network.R builds the TOM and module membership using blockwiseModules for the chosen soft power
-        r_script = os.path.join(script_dir, "scripts", "network.R")
-        power = str(config.get("power", 14))
-        tom_type = config.get("TOMType", "signed")
-        net_type = config.get("networkType", "signed")
-        merge_cut = str(config.get("mergeCutHeight", 0.01))
-        max_block = str(config.get("maxBlockSize", 1800))
-        
-        r_args = [
-            "--counts", counts_file,
-            "--metadata", metadata_file,
-            "--sample_id_col", sample_id_col,
-            "--outdir", outdir,
-            "--min_prevalence_pct", min_prevalence_pct,
-            "--transform", transform,
-            "--power", power,
-            "--TOMType", tom_type,
-            "--networkType", net_type,
-            "--mergeCutHeight", merge_cut,
-            "--maxBlockSize", max_block
-        ]
-        if taxonomy_file:
-            r_args += ["--taxonomy", taxonomy_file]
-            
-        run_r_script(r_script, r_args)
-        
+        run_network(script_dir, config, outdir, counts_file, metadata_file, taxonomy_file, sample_id_col, min_prevalence_pct, transform)
     elif args.command == "correlate":
-        # correlate.R computes module eigengene correlations with user-selected metadata traits
-        r_script = os.path.join(script_dir, "scripts", "correlate.R")
-        traits = ",".join(config.get("traits", []))
-        
-        r_args = [
-            "--metadata", metadata_file,
-            "--sample_id_col", sample_id_col,
-            "--outdir", outdir,
-            "--traits", traits
-        ]
-        run_r_script(r_script, r_args)
-        
+        run_correlate(script_dir, config, outdir, metadata_file, sample_id_col)
     elif args.command == "pls":
-        # pls.R fits PLS regression models and computes VIP score rankings for module-parameter pairs
-        r_script = os.path.join(script_dir, "scripts", "pls.R")
-        power = str(config.get("power", 12))
-        min_r2 = str(config.get("pls_min_r2", 0.30))
-        min_cor = float(config.get("pls_min_cor", 0.30))
+        run_pls(script_dir, config, outdir, counts_file, metadata_file, taxonomy_file, sample_id_col, min_prevalence_pct, transform)
+    elif args.command == "run":
+        print("\n>>> STARTING STEP 1/4: Thresholding Diagnostics <<<\n")
+        run_threshold(script_dir, config, outdir, counts_file, metadata_file, taxonomy_file, sample_id_col, min_prevalence_pct, transform)
         
-        pls_analyses = config.get("pls_analyses", [])
+        print("\n>>> STARTING STEP 2/4: Network Construction <<<\n")
+        run_network(script_dir, config, outdir, counts_file, metadata_file, taxonomy_file, sample_id_col, min_prevalence_pct, transform)
         
-        # If pls_analyses is empty/omitted, auto-detect significant correlations (q-value < 0.05 and |r| >= min_cor)
-        if not pls_analyses:
-            longform_path = os.path.join(outdir, "correlation", "longform_module_trait_table.csv")
-            if os.path.exists(longform_path):
-                print(f"No target analyses specified. Automatically loading module-trait pairs with q-value < 0.05 and |Correlation| >= {min_cor} from: {longform_path}")
-                import csv
-                try:
-                    with open(longform_path, mode='r') as f:
-                        reader = csv.DictReader(f)
-                        for row in reader:
-                            p_adj = float(row.get('p.adj', 1.0))
-                            correlation = float(row.get('Correlation', 0.0))
-                            if p_adj < 0.05 and abs(correlation) >= min_cor:
-                                # Strip 'ME' prefix from module name if present (e.g., MEblue -> blue)
-                                mod_name = row.get('Module', '')
-                                if mod_name.startswith('ME'):
-                                    mod_name = mod_name[2:]
-                                # Skip 'grey' module as it represents unassigned genes/noise
-                                if mod_name.lower() == 'grey':
-                                    continue
-                                pls_analyses.append({
-                                    "module": mod_name,
-                                    "parameter": row.get('Metadata_Parameter')
-                                })
-                except Exception as e:
-                    print(f"Error reading correlation table: {e}", file=sys.stderr)
-            else:
-                print("Error: No pls_analyses defined in configuration, and no longform_module_trait_table.csv found.", file=sys.stderr)
-                print("Please define pls_analyses in config or run 'correlate' step first.", file=sys.stderr)
-                sys.exit(1)
-                
-        if not pls_analyses:
-            print("No module-parameter pairs met the significance threshold (q-value < 0.05). Skipping PLS analysis.")
-            sys.exit(0)
-            
-        print(f"Found {len(pls_analyses)} significant pairs to analyze with PLS-VIP.")
+        print("\n>>> STARTING STEP 3/4: Module-Trait Correlation <<<\n")
+        run_correlate(script_dir, config, outdir, metadata_file, sample_id_col)
         
-        # Loop through each target analysis block and execute pls.R sequentially
-        for idx, analysis in enumerate(pls_analyses, 1):
-            module = analysis.get("module")
-            parameter = analysis.get("parameter")
-            if not module or not parameter:
-                print(f"Skipping invalid PLS analysis block #{idx}: {analysis}", file=sys.stderr)
-                continue
-                
-            print(f"\n======================================================================")
-            print(f"Running PLS-VIP ({idx}/{len(pls_analyses)}): Module '{module}' vs Trait '{parameter}'")
-            print(f"======================================================================")
-            
-            r_args = [
-                "--counts", counts_file,
-                "--metadata", metadata_file,
-                "--sample_id_col", sample_id_col,
-                "--outdir", outdir,
-                "--min_prevalence_pct", min_prevalence_pct,
-                "--transform", transform,
-                "--power", power,
-                "--module", module,
-                "--parameter", parameter,
-                "--min_r2", min_r2
-            ]
-            if taxonomy_file:
-                r_args += ["--taxonomy", taxonomy_file]
-                
-            run_r_script(r_script, r_args)
+        print("\n>>> STARTING STEP 4/4: PLS-VIP Analysis <<<\n")
+        run_pls(script_dir, config, outdir, counts_file, metadata_file, taxonomy_file, sample_id_col, min_prevalence_pct, transform)
+        
+        print("\n>>> PIPELINE EXECUTION COMPLETED SUCCESSFULLY! <<<\n")
 
 if __name__ == "__main__":
     main()

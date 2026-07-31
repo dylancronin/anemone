@@ -25,6 +25,7 @@ traits:
   - "alphaC"
   - "T_soil.deg_C"
   - "DepthAvg__"
+  - "Habitat__"
 
 # 6. PLS-VIP Target Analyses (Specific Module/Trait pairs)
 # If this block is commented out or empty, the pipeline will automatically detect and

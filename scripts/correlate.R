@@ -79,7 +79,13 @@ metadata_traits <- metadata_sub[, target_traits, drop = FALSE]
 # Convert factor/character columns to numeric if needed
 for (col in colnames(metadata_traits)) {
   if (!is.numeric(metadata_traits[[col]])) {
-    metadata_traits[[col]] <- as.numeric(as.character(metadata_traits[[col]]))
+    factor_vals <- as.factor(metadata_traits[[col]])
+    levels_map <- levels(factor_vals)
+    metadata_traits[[col]] <- as.numeric(factor_vals)
+    
+    map_details <- paste(sprintf("'%s'=%d", levels_map, 1:length(levels_map)), collapse=", ")
+    warning(sprintf("Metadata column '%s' is categorical (factor/character) and has been auto-encoded to numeric using levels: [%s]", 
+                    col, map_details), call. = FALSE)
   }
 }
 
