@@ -47,40 +47,48 @@ Ensure the following R packages are installed in your environment:
 All steps are controlled by a single YAML configuration file. A template is provided in `wgcna_config_example.yaml`:
 
 ```yaml
-# 1. Input File Paths
-counts_file: "data/counts.csv"
-metadata_file: "data/metadata.csv"
-taxonomy_file: "data/taxonomy.csv"
-sample_id_col: "sample_id"
+# 1. Input File Paths (Relative to execution directory or absolute paths)
+counts_file: "data/counts.csv"       # Taxa/genes as rows, samples as columns
+metadata_file: "data/metadata.csv"   # Samples as rows, metadata columns as traits
+taxonomy_file: "data/taxonomy.csv"   # (Optional) Taxa as rows, taxonomic levels as columns
+sample_id_col: "sample_id"           # Column in metadata matching counts column names
 
 # 2. Output Directory
 output_dir: "output"
 
 # 3. Preprocessing Parameters
-min_prevalence_pct: 10
+min_prevalence_pct: 10               # Keep taxa present in >= min_prevalence_pct % of samples
 # min_num_samples: 9                 # (Optional) Keep features present in > min_num_samples samples (strict inequality)
                                      # Bypasses min_prevalence_pct and replicates original Rmd filtering.
-transform: "hellinger"  # Choose: 'hellinger', 'relative', or 'none'
+transform: "hellinger"               # Preprocessing transformation: 'hellinger', 'relative', or 'none'
 
 # 4. Network Construction Parameters (WGCNA)
-power: 12
-TOMType: "signed"
-networkType: "signed"
-mergeCutHeight: 0.15
-maxBlockSize: 1800
+power: 12                            # Soft-threshold power (choose after running 'threshold' step)
+TOMType: "signed"                    # Topological Overlap Matrix type
+networkType: "signed"                # Network type
+mergeCutHeight: 0.1                 # Cut height for merging similar modules
+maxBlockSize: 1800                   # Maximum block size for blockwise modules
 
-# 5. Metadata Traits to Correlate with Modules
+# 5. Metadata Traits to Correlate with Modules (Numeric traits)
 traits:
   - "alphaC"
   - "T_soil.deg_C"
   - "DepthAvg__"
+  - "Habitat__"
 
-# 6. PLS-VIP Target Analyses (Optional)
-# If this block is commented out or empty, the pipeline will automatically detect
-# and run PLS-VIP on all pairs with a significant correlation (q-value < 0.05).
+# 6. PLS-VIP Target Analyses (Specific Module/Trait pairs)
+# If this block is commented out or empty, the pipeline will automatically detect and
+# run PLS-VIP on all module-parameter pairs that have a significant correlation (BH-adjusted q-value < 0.05).
+# Alternatively, you can uncomment and define specific pairs to analyze manually:
 # pls_analyses:
 #   - module: "blue"
 #     parameter: "alphaC"
+#   - module: "blue"
+#     parameter: "T_soil.deg_C"
+
+# 7. PLS-VIP R-squared Filter
+pls_min_r2: 0.30                     # Minimum R^2 threshold to proceed to VIP calculation (set to 0.0 to disable)
+pls_min_cor: 0.60                    # Minimum absolute correlation |r| to proceed to PLS-VIP in auto-mode (set to 0.0 to disable)
 ```
 
 ---
