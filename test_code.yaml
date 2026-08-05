@@ -1,0 +1,18 @@
+counts_file: "data/counts.csv"
+metadata_file: "data/metadata.csv"
+sample_id_col: "sample_id"
+output_dir: "output_test_all"
+
+# Preprocessing parameters (min_num_samples = 9 matches Rmd's Vals > 9)
+min_num_samples: 9
+transform: "hellinger"
+
+# Network parameters
+power: 16
+TOMType: "signed"
+networkType: "signed"
+mergeCutHeight: 0.01
+maxBlockSize: 1800
+
+traits:
+  - "alphaC"

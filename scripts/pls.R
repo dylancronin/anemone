@@ -12,6 +12,7 @@ option_list <- list(
   make_option("--sample_id_col", type="character", default="sample_id", help="Column name for sample IDs in metadata"),
   make_option("--outdir", type="character", default="output", help="Output directory path"),
   make_option("--min_prevalence_pct", type="double", default=10, help="Minimum prevalence percentage of samples (0-100)"),
+  make_option("--min_num_samples", type="integer", default=NULL, help="Minimum absolute sample count (strict inequality >)"),
   make_option("--transform", type="character", default="hellinger", help="Data transformation type"),
   make_option("--module", type="character", default=NULL, help="Target WGCNA module name [required]"),
   make_option("--parameter", type="character", default=NULL, help="Target metadata trait parameter [required]"),
@@ -32,6 +33,7 @@ sample_id_col <- opt$sample_id_col
 outdir <- file.path(opt$outdir, "pls_vip")
 dir.create(outdir, recursive = TRUE, showWarnings = FALSE)
 min_prevalence_pct <- opt$min_prevalence_pct
+min_num_samples <- opt$min_num_samples
 transform_type <- opt$transform
 target_module <- opt$module
 target_param <- opt$parameter
@@ -41,6 +43,7 @@ min_r2 <- opt$min_r2
 suppressPackageStartupMessages({
   library(pls)
   library(vegan)
+  library(WGCNA)
 })
 
 # 3. Load preprocessed data cache or preprocess on the fly
@@ -60,12 +63,17 @@ if (file.exists(prep_path)) {
   otumat <- as.matrix(counts)
   otumat[is.na(otumat)] <- 0
   
-  # Calculate min_num_samples from prevalence percentage
-  n_samples <- ncol(otumat)
-  min_num_samples <- ceiling((min_prevalence_pct / 100) * n_samples)
-  
-  vals <- rowSums(otumat > 0)
-  otumat_filtered <- otumat[vals >= min_num_samples, , drop = FALSE]
+  # Calculate min_num_samples from prevalence percentage or use absolute threshold
+  if (!is.null(opt$min_num_samples)) {
+    min_samples <- opt$min_num_samples
+    vals <- rowSums(otumat > 0)
+    otumat_filtered <- otumat[vals > min_samples, , drop = FALSE]
+  } else {
+    n_samples <- ncol(otumat)
+    min_samples <- ceiling((min_prevalence_pct / 100) * n_samples)
+    vals <- rowSums(otumat > 0)
+    otumat_filtered <- otumat[vals >= min_samples, , drop = FALSE]
+  }
   
   data_t <- t(otumat_filtered)
   if (transform_type == "hellinger") {
@@ -90,6 +98,14 @@ if (length(module_features) == 0) {
   stop(sprintf("Error: No features found belonging to module '%s'. Check your module name.", target_module))
 }
 cat(sprintf("Found %d features belonging to module '%s'.\n", length(module_features), target_module))
+
+# Load network construction workspace for module eigengenes (pops)
+network_rdata <- file.path(opt$outdir, "network", "network_construction.RData")
+if (file.exists(network_rdata)) {
+  load(network_rdata)
+} else {
+  stop(sprintf("Error: Network workspace file not found at %s. Run 'network' step first.", network_rdata))
+}
 
 # Subset data_transformed to only target module features
 X_data <- data_transformed[, colnames(data_transformed) %in% module_features, drop = FALSE]
@@ -194,6 +210,21 @@ calculate_vip <- function(pls_obj, ncomp) {
 vip_scores <- calculate_vip(pls_model, best_comp)
 coef_vals <- coef(pls_model, ncomp = best_comp)[, 1, 1]
 
+# Compute Module Membership (MM) and Trait Significance (GS) statistics for features
+nSamples_full <- nrow(data_transformed)
+modNames <- substring(colnames(pops), 3)
+geneModuleMembership <- as.data.frame(cor(data_transformed, pops, use = "p"))
+MMPvalue <- as.data.frame(corPvalueStudent(as.matrix(geneModuleMembership), nSamples_full))
+colnames(geneModuleMembership) <- paste0("MM", modNames)
+colnames(MMPvalue) <- paste0("p.MM", modNames)
+
+# Trait significance for features against target parameter y
+samples_valid_all <- intersect(rownames(data_transformed), rownames(X))
+geneTraitSignificance <- as.data.frame(cor(data_transformed[samples_valid_all, , drop = FALSE], y, use = "p"))
+GSPvalue <- as.data.frame(corPvalueStudent(as.matrix(geneTraitSignificance), length(y)))
+colnames(geneTraitSignificance) <- paste0("GS.", target_param)
+colnames(GSPvalue) <- paste0("p.GS.", target_param)
+
 # 8. Load Taxonomy mapping if available
 tax_df <- NULL
 if (!is.null(taxonomy_file) && file.exists(taxonomy_file)) {
@@ -202,12 +233,24 @@ if (!is.null(taxonomy_file) && file.exists(taxonomy_file)) {
 }
 
 # 9. Format Ranking Table
-cor_vals <- cor(X, y, use = "p")[, 1]
+mm_target_col <- paste0("MM", target_module)
+pmm_target_col <- paste0("p.MM", target_module)
+
+feats_target <- names(vip_scores)
+mm_vals <- geneModuleMembership[feats_target, mm_target_col]
+pmm_vals <- MMPvalue[feats_target, pmm_target_col]
+gs_vals <- geneTraitSignificance[feats_target, 1]
+pgs_vals <- GSPvalue[feats_target, 1]
+
 ranking_df <- data.frame(
-  Feature = names(vip_scores),
+  Feature = feats_target,
   VIP = vip_scores,
   Coefficient = coef_vals,
-  Correlation = cor_vals,
+  Correlation = gs_vals,
+  ModuleMembership = mm_vals,
+  MM_Pvalue = pmm_vals,
+  TraitSignificance = gs_vals,
+  GS_Pvalue = pgs_vals,
   stringsAsFactors = FALSE
 )
 
@@ -226,34 +269,69 @@ csv_out <- file.path(outdir, sprintf("pls_%s_%s_vip_rankings.csv", target_module
 write.csv(ranking_df, file = csv_out, row.names = FALSE)
 cat(sprintf("Feature rankings saved to: %s\n", csv_out))
 
-# 10. Plot Measured-vs-Predicted and VIP Scores
+# 10. Plot Diagnostic Reports (Page 1: MM vs GS, Page 2: Eigengene Adjacency/Dendrogram, Page 3: PLS LOO & VIP)
 plots_pdf <- file.path(outdir, sprintf("pls_%s_%s_plots.pdf", target_module, target_param))
 graphics.off()
 unlink(plots_pdf)
-pdf(plots_pdf, width = 12, height = 6)
+pdf(plots_pdf, width = 12, height = 8)
+
+# Page 1: Module Membership vs Trait Significance Scatter Plot
+if (mm_target_col %in% colnames(geneModuleMembership)) {
+  mod_genes_in_data <- intersect(module_features, rownames(geneModuleMembership))
+  par(mfrow = c(1, 1))
+  par(mar = c(6, 6, 4, 4))
+  verboseScatterplot(abs(geneModuleMembership[mod_genes_in_data, mm_target_col]),
+                     abs(geneTraitSignificance[mod_genes_in_data, 1]),
+                     xlab = paste("Module Membership -", target_module),
+                     ylab = paste("Correlation to", target_param),
+                     lmFnc = lm,
+                     abline = TRUE, abline.color = 1, abline.lty = 1,
+                     corFnc = "cor", corOptions = "use = 'p'",
+                     main = sprintf("Module Membership vs. Trait Significance\n(Module: %s | Trait: %s)", target_module, target_param),
+                     cex.main = 1.4, cex.lab = 1.3, cex.axis = 1.1, pch = 21, bg = target_module, col = "black")
+}
+
+# Page 2: Eigengene Dendrogram & Adjacency Heatmap with Trait
+y_df <- as.data.frame(y)
+rownames(y_df) <- rownames(X)
+colnames(y_df) <- target_param
+
+pops_matched <- pops[rownames(y_df), , drop = FALSE]
+MET <- orderMEs(cbind(pops_matched, y_df))
 
 par(mfrow = c(1, 2))
 par(mar = c(5, 5, 4, 2))
+plotEigengeneNetworks(MET, paste("Eigengene dendrogram with", target_param), marDendro = c(0, 4, 2, 0), plotHeatmaps = FALSE)
+plotEigengeneNetworks(MET, paste("Eigengene adjacency heatmap with", target_param), marHeatmap = c(3, 4, 2, 2), plotDendrograms = FALSE, xLabelsAngle = 90)
 
-# Page 1, Plot A: Measured vs Predicted Scatter plot
+# Page 3: PLS LOO Measured-vs-Predicted & Top 15 VIP Barplot
+par(mfrow = c(1, 2))
+par(mar = c(5, 5, 4, 2))
+
+# Plot A: Measured vs Predicted Scatter plot
 plot(y, y_pred, 
      xlab = sprintf("Measured %s", target_param), 
      ylab = sprintf("Predicted %s", target_param),
-     main = sprintf("PLS Leave-One-Out Performance\n(comp = %d, R^2 = %.3f, RMSE = %.3f)", 
+     main = sprintf("PLS LOO Performance\n(comp = %d, R^2 = %.3f, RMSE = %.3f)", 
                     best_comp, r2_val, rmse_val),
      pch = 19, col = target_module, cex = 1.2,
      cex.lab = 1.2, cex.axis = 1.1)
 abline(0, 1, col = "gray50", lty = "dashed", lwd = 1.5)
 
-# Page 1, Plot B: Barplot of Top 15 VIP Features
-top_vip <- head(ranking_df, 15)
-# If Genus column exists in taxonomy, use Genus + Feature label
+# Plot B: Barplot of Features with VIP > 1.0
+top_vip <- ranking_df[ranking_df$VIP > 1.0, , drop = FALSE]
+if (nrow(top_vip) == 0) {
+  # Fallback to top 5 if no features exceed 1.0 to ensure a plot is rendered
+  top_vip <- head(ranking_df, 5)
+}
 bar_labels <- top_vip$Feature
 if ("Genus" %in% colnames(top_vip)) {
   bar_labels <- paste0(top_vip$Genus, " (", substring(top_vip$Feature, 1, 8), "...)")
 }
 
-# Reset margin to allow horizontal bar names
+# Adjust label font size dynamically based on number of VIP > 1 features
+cex_font <- ifelse(nrow(top_vip) > 25, 0.5, ifelse(nrow(top_vip) > 15, 0.65, 0.8))
+
 par(mar = c(5, 12, 4, 2))
 barplot(rev(top_vip$VIP), 
         names.arg = rev(bar_labels), 
@@ -261,12 +339,12 @@ barplot(rev(top_vip$VIP),
         las = 1, 
         col = target_module,
         xlab = "VIP Score", 
-        main = sprintf("Top 15 Predictors in Module: %s\n(Predicting %s)", target_module, target_param),
-        cex.names = 0.8,
+        main = sprintf("Predictors with VIP > 1 in Module: %s\n(Predicting %s)", target_module, target_param),
+        cex.names = cex_font,
         cex.lab = 1.1)
-# Add red line for significance (VIP > 1.0 is standard threshold)
 abline(v = 1.0, col = "red", lty = "dashed", lwd = 1.5)
 
 dev.off()
 cat(sprintf("Diagnostic plots saved to: %s\n", plots_pdf))
 cat("PLS analysis completed successfully!\n")
+

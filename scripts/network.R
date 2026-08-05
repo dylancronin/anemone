@@ -12,6 +12,7 @@ option_list <- list(
   make_option("--sample_id_col", type="character", default="sample_id", help="Column name for sample IDs in metadata"),
   make_option("--outdir", type="character", default="output", help="Output directory path"),
   make_option("--min_prevalence_pct", type="double", default=10, help="Minimum prevalence percentage of samples (0-100)"),
+  make_option("--min_num_samples", type="integer", default=NULL, help="Minimum absolute sample count (strict inequality >)"),
   make_option("--transform", type="character", default="hellinger", help="Data transformation type"),
   make_option("--power", type="integer", default=14, help="Soft thresholding power"),
   make_option("--TOMType", type="character", default="signed", help="TOM type (signed/unsigned)"),
@@ -57,12 +58,17 @@ if (file.exists(prep_path)) {
   otumat <- as.matrix(counts)
   otumat[is.na(otumat)] <- 0
   
-  # Calculate min_num_samples from prevalence percentage
-  n_samples <- ncol(otumat)
-  min_num_samples <- ceiling((opt$min_prevalence_pct / 100) * n_samples)
-  
-  vals <- rowSums(otumat > 0)
-  otumat_filtered <- otumat[vals >= min_num_samples, , drop = FALSE]
+  # Calculate min_num_samples from prevalence percentage or use absolute threshold
+  if (!is.null(opt$min_num_samples)) {
+    min_samples <- opt$min_num_samples
+    vals <- rowSums(otumat > 0)
+    otumat_filtered <- otumat[vals > min_samples, , drop = FALSE]
+  } else {
+    n_samples <- ncol(otumat)
+    min_samples <- ceiling((opt$min_prevalence_pct / 100) * n_samples)
+    vals <- rowSums(otumat > 0)
+    otumat_filtered <- otumat[vals >= min_samples, , drop = FALSE]
+  }
   
   data_t <- t(otumat_filtered)
   if (opt$transform == "hellinger") {
@@ -111,12 +117,7 @@ rownames(clustermembership) <- clustermembership$Row.names
 clustermembership$Row.names <- NULL
 colnames(clustermembership) <- c("ModuleLabel", "ModuleColor")
 
-# Write module membership list
-membership_csv <- file.path(outdir, "module_membership.csv")
-write.csv(clustermembership, file = membership_csv, row.names = TRUE)
-cat(sprintf("Module membership saved to: %s\n", membership_csv))
-
-# 6. Extract Module Eigengenes
+# 6. Extract Module Eigengenes & Quantitative Module Membership (MM)
 cat("Extracting module eigengenes...\n")
 MAGs_eig <- moduleEigengenes(data_transformed, module_colors)$eigengenes
 pops <- orderMEs(MAGs_eig)
@@ -126,6 +127,40 @@ rownames(pops) <- rownames(data_transformed)
 eigengenes_csv <- file.path(outdir, "module_eigengenes.csv")
 write.csv(pops, file = eigengenes_csv, row.names = TRUE)
 cat(sprintf("Module eigengenes saved to: %s\n", eigengenes_csv))
+
+# Calculate quantitative Module Membership (MM) and Student p-values
+cat("Calculating quantitative module membership (MM)...\n")
+nSamples <- nrow(data_transformed)
+modNames <- substring(colnames(pops), 3) # Strip ME prefix
+geneModuleMembership <- as.data.frame(cor(data_transformed, pops, use = "p"))
+MMPvalue <- as.data.frame(corPvalueStudent(as.matrix(geneModuleMembership), nSamples))
+colnames(geneModuleMembership) <- paste0("MM", modNames)
+colnames(MMPvalue) <- paste0("p.MM", modNames)
+
+# Write full module membership matrix CSV
+gene_mm_csv <- file.path(outdir, "gene_module_membership.csv")
+full_mm_df <- cbind(Feature = rownames(geneModuleMembership), geneModuleMembership, MMPvalue)
+write.csv(full_mm_df, file = gene_mm_csv, row.names = FALSE)
+cat(sprintf("Full gene module membership saved to: %s\n", gene_mm_csv))
+
+# Annotate module_membership.csv with MM_ownModule and p.MM_ownModule
+clustermembership$MM_ownModule <- NA_real_
+clustermembership$p.MM_ownModule <- NA_real_
+
+for (i in 1:nrow(clustermembership)) {
+  feat <- rownames(clustermembership)[i]
+  col_color <- clustermembership$ModuleColor[i]
+  mm_col <- paste0("MM", col_color)
+  pmm_col <- paste0("p.MM", col_color)
+  if (mm_col %in% colnames(geneModuleMembership)) {
+    clustermembership$MM_ownModule[i] <- geneModuleMembership[feat, mm_col]
+    clustermembership$p.MM_ownModule[i] <- MMPvalue[feat, pmm_col]
+  }
+}
+
+membership_csv <- file.path(outdir, "module_membership.csv")
+write.csv(clustermembership, file = membership_csv, row.names = TRUE)
+cat(sprintf("Module membership saved to: %s\n", membership_csv))
 
 # Plot the unmerged module eigengene clustering dendrogram to help choose mergeCutHeight
 cat("Generating unmerged module eigengene clustering dendrogram...\n")
@@ -171,6 +206,7 @@ geneTree <- net$dendrograms[[1]]
 moduleColors <- module_colors
 moduleLabels <- net$colors
 
-save(pops, moduleLabels, moduleColors, geneTree, file = network_rdata)
+save(pops, moduleLabels, moduleColors, geneTree, geneModuleMembership, MMPvalue, file = network_rdata)
 cat(sprintf("Network construction workspace saved to: %s\n", network_rdata))
 cat("Network construction completed successfully!\n")
+

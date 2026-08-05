@@ -44,7 +44,7 @@ def run_r_script(script_path, args):
         print(f"\nError executing process: {e}", file=sys.stderr)
         sys.exit(1)
 
-def run_threshold(script_dir, config, outdir, counts_file, metadata_file, taxonomy_file, sample_id_col, min_prevalence_pct, transform):
+def run_threshold(script_dir, config, outdir, counts_file, metadata_file, taxonomy_file, sample_id_col, min_prevalence_pct, transform, min_num_samples=None):
     r_script = os.path.join(script_dir, "scripts", "threshold.R")
     r_args = [
         "--counts", counts_file,
@@ -54,11 +54,13 @@ def run_threshold(script_dir, config, outdir, counts_file, metadata_file, taxono
         "--min_prevalence_pct", min_prevalence_pct,
         "--transform", transform
     ]
+    if min_num_samples is not None:
+        r_args += ["--min_num_samples", str(min_num_samples)]
     if taxonomy_file:
         r_args += ["--taxonomy", taxonomy_file]
     run_r_script(r_script, r_args)
 
-def run_network(script_dir, config, outdir, counts_file, metadata_file, taxonomy_file, sample_id_col, min_prevalence_pct, transform):
+def run_network(script_dir, config, outdir, counts_file, metadata_file, taxonomy_file, sample_id_col, min_prevalence_pct, transform, min_num_samples=None):
     r_script = os.path.join(script_dir, "scripts", "network.R")
     power = str(config.get("power", 14))
     tom_type = config.get("TOMType", "signed")
@@ -79,6 +81,8 @@ def run_network(script_dir, config, outdir, counts_file, metadata_file, taxonomy
         "--mergeCutHeight", merge_cut,
         "--maxBlockSize", max_block
     ]
+    if min_num_samples is not None:
+        r_args += ["--min_num_samples", str(min_num_samples)]
     if taxonomy_file:
         r_args += ["--taxonomy", taxonomy_file]
     run_r_script(r_script, r_args)
@@ -95,7 +99,7 @@ def run_correlate(script_dir, config, outdir, metadata_file, sample_id_col):
     ]
     run_r_script(r_script, r_args)
 
-def run_pls(script_dir, config, outdir, counts_file, metadata_file, taxonomy_file, sample_id_col, min_prevalence_pct, transform):
+def run_pls(script_dir, config, outdir, counts_file, metadata_file, taxonomy_file, sample_id_col, min_prevalence_pct, transform, min_num_samples=None):
     r_script = os.path.join(script_dir, "scripts", "pls.R")
     power = str(config.get("power", 12))
     min_r2 = str(config.get("pls_min_r2", 0.30))
@@ -164,6 +168,8 @@ def run_pls(script_dir, config, outdir, counts_file, metadata_file, taxonomy_fil
             "--parameter", parameter,
             "--min_r2", min_r2
         ]
+        if min_num_samples is not None:
+            r_args += ["--min_num_samples", str(min_num_samples)]
         if taxonomy_file:
             r_args += ["--taxonomy", taxonomy_file]
             
@@ -243,28 +249,29 @@ def main():
     sample_id_col = config.get("sample_id_col", "sample_id")
     min_prevalence_pct = str(config.get("min_prevalence_pct", 10))
     transform = config.get("transform", "hellinger")
+    min_num_samples = config.get("min_num_samples")
     
     # 3. Route to helpers
     if args.command == "threshold":
-        run_threshold(script_dir, config, outdir, counts_file, metadata_file, taxonomy_file, sample_id_col, min_prevalence_pct, transform)
+        run_threshold(script_dir, config, outdir, counts_file, metadata_file, taxonomy_file, sample_id_col, min_prevalence_pct, transform, min_num_samples)
     elif args.command == "network":
-        run_network(script_dir, config, outdir, counts_file, metadata_file, taxonomy_file, sample_id_col, min_prevalence_pct, transform)
+        run_network(script_dir, config, outdir, counts_file, metadata_file, taxonomy_file, sample_id_col, min_prevalence_pct, transform, min_num_samples)
     elif args.command == "correlate":
         run_correlate(script_dir, config, outdir, metadata_file, sample_id_col)
     elif args.command == "pls":
-        run_pls(script_dir, config, outdir, counts_file, metadata_file, taxonomy_file, sample_id_col, min_prevalence_pct, transform)
+        run_pls(script_dir, config, outdir, counts_file, metadata_file, taxonomy_file, sample_id_col, min_prevalence_pct, transform, min_num_samples)
     elif args.command == "run":
         print("\n>>> STARTING STEP 1/4: Thresholding Diagnostics <<<\n")
-        run_threshold(script_dir, config, outdir, counts_file, metadata_file, taxonomy_file, sample_id_col, min_prevalence_pct, transform)
+        run_threshold(script_dir, config, outdir, counts_file, metadata_file, taxonomy_file, sample_id_col, min_prevalence_pct, transform, min_num_samples)
         
         print("\n>>> STARTING STEP 2/4: Network Construction <<<\n")
-        run_network(script_dir, config, outdir, counts_file, metadata_file, taxonomy_file, sample_id_col, min_prevalence_pct, transform)
+        run_network(script_dir, config, outdir, counts_file, metadata_file, taxonomy_file, sample_id_col, min_prevalence_pct, transform, min_num_samples)
         
         print("\n>>> STARTING STEP 3/4: Module-Trait Correlation <<<\n")
         run_correlate(script_dir, config, outdir, metadata_file, sample_id_col)
         
         print("\n>>> STARTING STEP 4/4: PLS-VIP Analysis <<<\n")
-        run_pls(script_dir, config, outdir, counts_file, metadata_file, taxonomy_file, sample_id_col, min_prevalence_pct, transform)
+        run_pls(script_dir, config, outdir, counts_file, metadata_file, taxonomy_file, sample_id_col, min_prevalence_pct, transform, min_num_samples)
         
         print("\n>>> PIPELINE EXECUTION COMPLETED SUCCESSFULLY! <<<\n")
 

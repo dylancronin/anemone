@@ -12,6 +12,7 @@ option_list <- list(
   make_option("--sample_id_col", type="character", default="sample_id", help="Column name for sample IDs in metadata"),
   make_option("--outdir", type="character", default="output", help="Output directory path"),
   make_option("--min_prevalence_pct", type="double", default=10, help="Minimum prevalence percentage of samples (0-100)"),
+  make_option("--min_num_samples", type="integer", default=NULL, help="Minimum absolute sample count (strict inequality >)"),
   make_option("--transform", type="character", default="hellinger", help="Data transformation type")
 )
 
@@ -28,6 +29,7 @@ sample_id_col <- opt$sample_id_col
 outdir <- file.path(opt$outdir, "preprocess")
 dir.create(outdir, recursive = TRUE, showWarnings = FALSE)
 min_prevalence_pct <- opt$min_prevalence_pct
+min_num_samples <- opt$min_num_samples
 transform <- opt$transform
 
 # 2. Load Required Packages Quietly
@@ -44,18 +46,24 @@ if (sample_id_col %in% colnames(metadata)) {
   rownames(metadata) <- metadata[[sample_id_col]]
 }
 
-# Helper function to preprocess data for a given prevalence percentage
-preprocess_data <- function(counts_df, metadata_df, sample_id, prev_pct, trans_method) {
+# Helper function to preprocess data for a given prevalence percentage or absolute count
+preprocess_data <- function(counts_df, metadata_df, sample_id, prev_pct, trans_method, min_num_samps = NULL) {
   otumat <- as.matrix(counts_df)
   otumat[is.na(otumat)] <- 0
   
-  # Calculate min_num_samples from prevalence percentage
-  n_samples <- ncol(otumat)
-  min_samples <- ceiling((prev_pct / 100) * n_samples)
-  
-  # Filter by prevalence
-  vals <- rowSums(otumat > 0)
-  otumat_filtered <- otumat[vals >= min_samples, , drop = FALSE]
+  if (!is.null(min_num_samps)) {
+    min_samples <- min_num_samps
+    # Filter using strict inequality to match original Rmd (Vals > min_num_samples)
+    vals <- rowSums(otumat > 0)
+    otumat_filtered <- otumat[vals > min_samples, , drop = FALSE]
+  } else {
+    # Calculate min_num_samples from prevalence percentage
+    n_samples <- ncol(otumat)
+    min_samples <- ceiling((prev_pct / 100) * n_samples)
+    # Filter using inclusive inequality
+    vals <- rowSums(otumat > 0)
+    otumat_filtered <- otumat[vals >= min_samples, , drop = FALSE]
+  }
   
   # Transpose
   data_t <- t(otumat_filtered)
@@ -79,12 +87,21 @@ preprocess_data <- function(counts_df, metadata_df, sample_id, prev_pct, trans_m
 }
 
 # 3. Preprocess for the main configured prevalence cutoff
-cat(sprintf("Preprocessing configured cutoff: %.1f%% prevalence...\n", min_prevalence_pct))
-prep_res <- preprocess_data(counts, metadata, sample_id_col, min_prevalence_pct, transform)
+if (!is.null(min_num_samples)) {
+  cat(sprintf("Preprocessing configured cutoff: presence in > %d samples...\n", min_num_samples))
+  prep_res <- preprocess_data(counts, metadata, sample_id_col, min_prevalence_pct, transform, min_num_samples)
+} else {
+  cat(sprintf("Preprocessing configured cutoff: %.1f%% prevalence...\n", min_prevalence_pct))
+  prep_res <- preprocess_data(counts, metadata, sample_id_col, min_prevalence_pct, transform, NULL)
+}
 data_transformed <- prep_res$data
 
-cat(sprintf("Configured cutoff (%.1f%%) corresponds to presence in >= %d samples.\n", 
-            min_prevalence_pct, prep_res$min_samples))
+if (!is.null(min_num_samples)) {
+  cat(sprintf("Configured cutoff corresponds to presence in > %d samples.\n", min_num_samples))
+} else {
+  cat(sprintf("Configured cutoff (%.1f%%) corresponds to presence in >= %d samples.\n", 
+              min_prevalence_pct, prep_res$min_samples))
+}
 cat(sprintf("Taxa count before filtering: %d, after filtering: %d\n", 
             nrow(counts), prep_res$n_features))
 

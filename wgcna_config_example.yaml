@@ -11,6 +11,8 @@ output_dir: "output"
 
 # 3. Preprocessing Parameters
 min_prevalence_pct: 10               # Keep taxa present in >= min_prevalence_pct % of samples
+# min_num_samples: 9                 # (Optional) Keep taxa present in > min_num_samples samples (strict inequality)
+                                     # Bypasses min_prevalence_pct and replicates original Rmd filtering.
 transform: "hellinger"               # Preprocessing transformation: 'hellinger', 'relative', or 'none'
 
 # 4. Network Construction Parameters (WGCNA)

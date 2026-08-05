@@ -113,7 +113,8 @@ Constructs co-abundance networks, groups features into color-coded modules, and 
 ./wgcna-vip network --config wgcna_config_example.yaml
 ```
 * **Outputs**:
-  * `output/network/module_membership.csv`: Assignments (color & label) for every feature.
+  * `output/network/module_membership.csv`: Assignments (color, label, own-module MM & p-value) for every feature.
+  * `output/network/gene_module_membership.csv`: Full quantitative module membership correlations ($MM$) and Student p-values ($p.MM$) across all modules for every feature.
   * `output/network/module_eigengenes.csv`: Profile summaries (eigengenes) for each module across samples.
   * `output/network/unmerged_module_eigengene_clustering.pdf`: Dendrogram of modules **before** merging.
   * `output/network/module_eigengene_clustering.pdf`: Dendrogram of modules **after** merging.
@@ -142,10 +143,11 @@ Fits a PLS regression model predicting a metadata trait using only the features 
 * **Manual Mode**: Uncomment and specify target pairs in `pls_analyses` to override auto-mode.
 * **R-squared Filter**: In both modes, the model is checked against the `pls_min_r2` threshold (defaults to `0.30`). If the maximum $R^2$ across all components does not exceed this value, the pair is skipped, matching your project's historical predictive criteria.
 * **Outputs** (generated for each pair, e.g., `blue` module predicting `alphaC`):
-  * `output/pls_vip/pls_blue_alphaC_vip_rankings.csv`: Ranked list of all features in the module sorted by VIP scores, annotated with taxonomic Genus if `taxonomy.csv` is provided.
-  * `output/pls_vip/pls_blue_alphaC_plots.pdf`:
-    * **Left**: Measured vs. Predicted cross-validation fit plot ($R^2$ and RMSE).
-    * **Right**: Barplot of the Top 15 driving features labeled with Genus, with a dashed line showing significance (`VIP > 1.0`).
+  * `output/pls_vip/pls_blue_alphaC_vip_rankings.csv`: Ranked list of all features in the module sorted by VIP scores, annotated with Module Membership ($MM$), Trait Significance ($GS$), p-values, and taxonomic Genus if `taxonomy.csv` is provided.
+  * `output/pls_vip/pls_blue_alphaC_plots.pdf`: 3-page diagnostic report:
+    * **Page 1**: Module Membership ($MM$) vs. Trait Significance ($GS$) scatter plot (`verboseScatterplot`) with linear regression line and correlation statistics.
+    * **Page 2**: Eigengene dendrogram and adjacency heatmap incorporating the target metadata trait (`plotEigengeneNetworks`).
+    * **Page 3**: Left: Measured vs. Predicted PLS LOO fit plot ($R^2$ & RMSE). Right: Barplot of all driving features with `VIP > 1.0` labeled with Genus.
 
 ---
 
