@@ -58,6 +58,8 @@ output_dir: "output"
 
 # 3. Preprocessing Parameters
 min_prevalence_pct: 10
+# min_num_samples: 9                 # (Optional) Keep features present in > min_num_samples samples (strict inequality)
+                                     # Bypasses min_prevalence_pct and replicates original Rmd filtering.
 transform: "hellinger"  # Choose: 'hellinger', 'relative', or 'none'
 
 # 4. Network Construction Parameters (WGCNA)
@@ -103,7 +105,10 @@ Tests how different prevalence filtering cutoffs (`5%`, `10%`, `15%`, `20%`, `25
 * **Output**: `output/preprocess/thresholding_diagnostics.pdf`
   * **Page 1**: Sample outlier clustering dendrogram at your target prevalence.
   * **Subsequent Pages**: Comparative fit index and mean connectivity plots for each scanned prevalence.
-* **Goal**: Choose a `min_prevalence_pct` and a soft-thresholding `power` where the scale-free fit ($R^2$) plateaus above `0.80`.
+* **Goal**: Choose a `min_prevalence_pct` (or absolute `min_num_samples`) and a soft-thresholding `power` where the scale-free fit ($R^2$) plateaus above `0.80`.
+* **Preprocessing Modes**:
+  * **Prevalence-based (Standard)**: Keep features present in `>= min_prevalence_pct` % of samples.
+  * **Absolute Count (Legacy Rmd mode)**: If `min_num_samples` is specified in the YAML config, it bypasses the prevalence percentage calculation and filters features present in strictly greater than `min_num_samples` samples (`vals > min_num_samples`), matching the original paper's Rmd filtering behavior.
 
 ---
 
