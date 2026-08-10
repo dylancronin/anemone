@@ -93,7 +93,7 @@ Verify that the CLI parser runs cleanly:
 
 ```bash
 # Check ANEMONE CLI help
-./anemone --help
+anemone --help
 ```
 
 Expected output:
@@ -162,19 +162,19 @@ traits:
 
 # 7. PLS-VIP R-squared Filter
 pls_min_r2: 0.30                     # Minimum R^2 threshold to proceed to VIP calculation (set to 0.0 to disable)
-pls_min_cor: 0.60                    # Minimum absolute correlation |r| to proceed to PLS-VIP in auto-mode (set to 0.0 to disable)
+pls_min_cor: 0.60                    # Minimum positive correlation threshold (r >= min_cor) to proceed to PLS-VIP in auto-mode (set to 0.0 to disable)
 ```
 
 ---
 
 ## Usage Instructions
 
-Command syntax: `./anemone [subcommand] --config [config.yaml]`
+Command syntax: `anemone [subcommand] --config [config.yaml]`
 
 ### Run the Entire Pipeline End-to-End
 Execute all four pipeline steps sequentially (threshold, network, correlate, and pls-vip):
 ```bash
-./anemone run --config anemone_config_example.yaml
+anemone run --config anemone_config_example.yaml
 ```
 
 ---
@@ -184,7 +184,7 @@ Execute all four pipeline steps sequentially (threshold, network, correlate, and
 #### Step 1: Soft-Thresholding Diagnostics (`threshold`)
 Evaluates scale-free topology fit ($R^2$) and mean connectivity across prevalence filtering cutoffs (`5%`, `10%`, `15%`, `20%`, `25%`, and `30%`).
 ```bash
-./anemone threshold --config anemone_config_example.yaml
+anemone threshold --config anemone_config_example.yaml
 ```
 * **Output**: `output/preprocess/thresholding_diagnostics.pdf`
   * **Page 1**: Sample outlier clustering dendrogram at your target prevalence.
@@ -194,7 +194,7 @@ Evaluates scale-free topology fit ($R^2$) and mean connectivity across prevalenc
 #### Step 2: Network Construction & Module Detection (`network`)
 Builds co-abundance networks, assigns features to color-coded modules, and calculates module eigengenes (MEs).
 ```bash
-./anemone network --config anemone_config_example.yaml
+anemone network --config anemone_config_example.yaml
 ```
 * **Outputs**:
   * `output/network/module_membership.csv`: Module color & label assignments for each feature.
@@ -207,7 +207,7 @@ Builds co-abundance networks, assigns features to color-coded modules, and calcu
 #### Step 3: Module-Trait Correlation (`correlate`)
 Correlates module eigengenes with phenotypic parameters and applies Benjamini-Hochberg FDR correction.
 ```bash
-./anemone correlate --config anemone_config_example.yaml
+anemone correlate --config anemone_config_example.yaml
 ```
 * **Outputs**:
   * `output/correlation/longform_module_trait_table.csv`: Table of Pearson correlations, raw p-values, and adjusted q-values.
@@ -217,9 +217,9 @@ Correlates module eigengenes with phenotypic parameters and applies Benjamini-Ho
 #### Step 4: PLS-VIP Predictive Modeling (`pls`)
 Fits Partial Least Squares (PLS) regression models for correlated module-trait pairs and calculates Variable Importance in Projection (VIP) scores for driver discovery.
 ```bash
-./anemone pls --config anemone_config_example.yaml
+anemone pls --config anemone_config_example.yaml
 ```
-* **Auto-Mode (Recommended)**: Scans the correlation table automatically, detecting all module-trait pairs with adjusted `q-value < 0.05` and `|Correlation| >= pls_min_cor`.
+* **Auto-Mode (Recommended)**: Scans the correlation table automatically, detecting all module-trait pairs with adjusted `q-value < 0.05` and positive correlation `Correlation >= pls_min_cor`.
 * **Manual Mode**: Specify target pairs explicitly in `pls_analyses`.
 * **Outputs** (generated for each target pair, e.g., `blue` module predicting `alphaC`):
   * `output/pls_vip/pls_blue_alphaC_vip_rankings.csv`: Ranked list of module features sorted by VIP score, with $MM$, $GS$, p-values, and taxonomic classifications.

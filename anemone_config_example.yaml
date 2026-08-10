@@ -41,4 +41,4 @@ traits:
 
 # 7. PLS-VIP R-squared Filter
 pls_min_r2: 0.30                     # Minimum R^2 threshold to proceed to VIP calculation (set to 0.0 to disable)
-pls_min_cor: 0.60                    # Minimum absolute correlation |r| to proceed to PLS-VIP in auto-mode (set to 0.0 to disable)
+pls_min_cor: 0.60                    # Minimum positive correlation threshold (r >= min_cor) to proceed to PLS-VIP in auto-mode (set to 0.0 to disable)

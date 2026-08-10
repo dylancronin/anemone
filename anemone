@@ -107,11 +107,11 @@ def run_pls(script_dir, config, outdir, counts_file, metadata_file, taxonomy_fil
     
     pls_analyses = config.get("pls_analyses", [])
     
-    # If pls_analyses is empty/omitted, auto-detect significant correlations (q-value < 0.05 and |r| >= min_cor)
+    # If pls_analyses is empty/omitted, auto-detect significant positive correlations (q-value < 0.05 and r >= min_cor)
     if not pls_analyses:
         longform_path = os.path.join(outdir, "correlation", "longform_module_trait_table.csv")
         if os.path.exists(longform_path):
-            print(f"No target analyses specified. Automatically loading module-trait pairs with q-value < 0.05 and |Correlation| >= {min_cor} from: {longform_path}")
+            print(f"No target analyses specified. Automatically loading module-trait pairs with q-value < 0.05 and Correlation >= {min_cor} from: {longform_path}")
             import csv
             try:
                 with open(longform_path, mode='r') as f:
@@ -119,7 +119,7 @@ def run_pls(script_dir, config, outdir, counts_file, metadata_file, taxonomy_fil
                     for row in reader:
                         p_adj = float(row.get('p.adj', 1.0))
                         correlation = float(row.get('Correlation', 0.0))
-                        if p_adj < 0.05 and abs(correlation) >= min_cor:
+                        if p_adj < 0.05 and correlation >= min_cor:
                             # Strip 'ME' prefix from module name if present (e.g., MEblue -> blue)
                             mod_name = row.get('Module', '')
                             if mod_name.startswith('ME'):
