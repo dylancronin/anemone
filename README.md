@@ -2,7 +2,7 @@
 
 A standardized, command-line pipeline that integrates **Weighted Gene Co-expression Network Analysis (WGCNA)** and **Partial Least Squares Variable Importance in Projection (PLS-VIP)** regression. 
 
-**ANEMONE** is designed to work with high-throughput biological tables (such as microbiome OTU/ASV feature tables or RNA-seq gene expression matrices) alongside phenotypic metadata files. It orchestrates data preprocessing, scale-free topology parameter fitting, network construction, module-trait correlation analysis, and predictive driver feature identification.
+**ANEMONE** is designed to work with abundance/expression tables (such as microbiome OTU/ASV feature tables or RNA-seq gene expression matrices) alongside sample metadata files. It orchestrates data preprocessing, scale-free topology parameter fitting, network construction, module-trait correlation analysis, and predictive driver feature identification.
 
 ---
 
