@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-wgcna-vip: A command-line orchestrator for WGCNA and PLS-VIP analyses.
+anemone: A command-line orchestrator for WGCNA and PLS-VIP analyses.
 
 This script parses a YAML configuration file containing pathways and parameters,
 routes command-line subcommands (threshold, network, correlate, pls, run) to their 
@@ -188,7 +188,7 @@ def main():
     )
     
     parser = argparse.ArgumentParser(
-        description="wgcna-vip: CLI tool for WGCNA and PLS-VIP analysis"
+        description="anemone: CLI tool for WGCNA and PLS-VIP analysis"
     )
     
     # Add subparsers for each step of the pipeline

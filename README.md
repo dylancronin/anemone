@@ -1,14 +1,14 @@
-# WGCNA PLS-VIP Tool
+# ANEMONE
 
 A standardized, command-line pipeline that integrates **Weighted Gene Co-expression Network Analysis (WGCNA)** and **Partial Least Squares Variable Importance in Projection (PLS-VIP)** regression. 
 
-This tool is designed to work with high-throughput tables (like microbiome OTU/ASV tables or RNA-seq gene expression matrices) and metadata phenotypic files, running data preprocessing, scale-free topology parameter fitting, network construction, and phenotypic driver identification.
+**ANEMONE** is designed to work with high-throughput biological tables (such as microbiome OTU/ASV feature tables or RNA-seq gene expression matrices) alongside phenotypic metadata files. It orchestrates data preprocessing, scale-free topology parameter fitting, network construction, module-trait correlation analysis, and predictive driver feature identification.
 
 ---
 
 ## Workflow Overview
 
-The tool is organized into four sequential steps, wrapped in a single Python executable:
+The tool is organized into four sequential analytical steps, executed via the `anemone` command-line orchestrator:
 
 ```mermaid
 graph TD
@@ -26,25 +26,115 @@ graph TD
 
 ## Installation & Setup
 
-### 1. Conda Environment
-The tool runs within the `bog-incubations` conda environment:
+### Prerequisites
+* **Linux / macOS** operating system
+* **Python**: `>= 3.8` (with `PyYAML` package)
+* **R**: `>= 4.0` (with Rscript available in PATH)
+* **Conda / Mamba** (recommended for managing environment dependencies)
+
+---
+
+### Step 1: Create Conda Environment via `environment.yml` (Recommended)
+
+You can create a self-contained Conda environment containing Python, R, and all required dependencies in a single step using `environment.yml`:
+
 ```bash
-conda activate bog-incubations
+# Create the conda environment
+conda env create -f environment.yml
+
+# Activate the environment
+conda activate anemone
 ```
 
-### 2. R Package Dependencies
-Ensure the following R packages are installed in your environment:
-* `WGCNA`
-* `vegan`
-* `pls`
-* `optparse`
-* `RColorBrewer`
+Alternatively, if using Mamba:
+```bash
+mamba env create -f environment.yml
+conda activate anemone
+```
+
+---
+
+### Step 2: Alternative R Package Installation (R Console)
+
+If you prefer using your system R environment, install the required packages directly from CRAN and Bioconductor:
+
+```R
+# Install BiocManager if not present
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+# Install WGCNA from Bioconductor
+BiocManager::install("WGCNA")
+
+# Install CRAN dependencies
+install.packages(c("vegan", "pls", "optparse", "RColorBrewer", "yaml"))
+```
+
+---
+
+### Step 3: Clone Repository & Setup Executable
+
+Clone the repository and ensure the `anemone` CLI script has execution permissions:
+
+```bash
+# Clone repository
+git clone https://github.com/your-username/anemone.git
+cd anemone
+
+# Grant execute permission to CLI script
+chmod +x anemone
+```
+
+#### Add `anemone` to System PATH (Optional)
+
+To execute `anemone` from any directory without specifying `./`, link it to `~/bin` or `/usr/local/bin`:
+
+```bash
+# Create local bin directory if it doesn't exist
+mkdir -p ~/bin
+
+# Create symbolic link
+ln -s $(pwd)/anemone ~/bin/anemone
+
+# Add ~/bin to PATH in bashrc/zshrc if not already present
+echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+---
+
+### Step 4: Verify Installation
+
+Verify that the CLI parser runs cleanly:
+
+```bash
+# Check ANEMONE CLI help
+./anemone --help
+```
+
+Expected output:
+```text
+usage: anemone [-h] --config CONFIG {threshold,network,correlate,pls,run} ...
+
+anemone: CLI tool for WGCNA and PLS-VIP analysis
+
+positional arguments:
+  {threshold,network,correlate,pls,run}
+    threshold           Perform prevalence filtering and plot soft-threshold powers
+    network             Construct the co-expression network and identify modules
+    correlate           Correlate module eigengenes with metadata traits
+    pls                 Run PLS regression and compute VIP scores for specified module/parameter pairs
+    run                 Run all steps in the pipeline sequentially end-to-end
+
+options:
+  -h, --help            show this help message and exit
+```
 
 ---
 
 ## Configuration
 
-All steps are controlled by a single YAML configuration file. A template is provided in `wgcna_config_example.yaml`:
+All pipeline steps are configured using a single YAML configuration file. A standard template is provided in `anemone_config_example.yaml`:
 
 ```yaml
 # 1. Input File Paths (Relative to execution directory or absolute paths)
@@ -95,76 +185,65 @@ pls_min_cor: 0.60                    # Minimum absolute correlation |r| to proce
 
 ## Usage Instructions
 
-The tool is directly executable: `./wgcna-vip [subcommand] --config [config.yaml]`
+Command syntax: `./anemone [subcommand] --config [config.yaml]`
 
 ### Run the Entire Pipeline End-to-End
-You can run the complete pipeline sequentially (threshold, network, correlate, and pls-vip) in one go:
+Execute all four pipeline steps sequentially (threshold, network, correlate, and pls-vip):
 ```bash
-./wgcna-vip run --config wgcna_config_example.yaml
+./anemone run --config anemone_config_example.yaml
 ```
+
+---
 
 ### Run Steps Individually
 
-### Step 1: soft-Thresholding Analysis
-Tests how different prevalence filtering cutoffs (`5%`, `10%`, `15%`, `20%`, `25%`, and `30%`) affect your scale-free topology fit ($R^2$) and mean connectivity.
+#### Step 1: Soft-Thresholding Diagnostics (`threshold`)
+Evaluates scale-free topology fit ($R^2$) and mean connectivity across prevalence filtering cutoffs (`5%`, `10%`, `15%`, `20%`, `25%`, and `30%`).
 ```bash
-./wgcna-vip threshold --config wgcna_config_example.yaml
+./anemone threshold --config anemone_config_example.yaml
 ```
 * **Output**: `output/preprocess/thresholding_diagnostics.pdf`
   * **Page 1**: Sample outlier clustering dendrogram at your target prevalence.
   * **Subsequent Pages**: Comparative fit index and mean connectivity plots for each scanned prevalence.
-* **Goal**: Choose a `min_prevalence_pct` (or absolute `min_num_samples`) and a soft-thresholding `power` where the scale-free fit ($R^2$) plateaus above `0.80`.
-* **Preprocessing Modes**:
-  * **Prevalence-based (Standard)**: Keep features present in `>= min_prevalence_pct` % of samples.
-  * **Absolute Count (Legacy Rmd mode)**: If `min_num_samples` is specified in the YAML config, it bypasses the prevalence percentage calculation and filters features present in strictly greater than `min_num_samples` samples (`vals > min_num_samples`), matching the original paper's Rmd filtering behavior.
+* **Goal**: Select a `min_prevalence_pct` (or absolute `min_num_samples`) and soft-thresholding `power` where scale-free fit ($R^2$) plateaus above `0.80`.
 
----
-
-### Step 2: Network Construction & Module Detection
-Constructs co-abundance networks, groups features into color-coded modules, and calculates module eigengenes (MEs).
+#### Step 2: Network Construction & Module Detection (`network`)
+Builds co-abundance networks, assigns features to color-coded modules, and calculates module eigengenes (MEs).
 ```bash
-./wgcna-vip network --config wgcna_config_example.yaml
+./anemone network --config anemone_config_example.yaml
 ```
 * **Outputs**:
-  * `output/network/module_membership.csv`: Assignments (color, label, own-module MM & p-value) for every feature.
-  * `output/network/gene_module_membership.csv`: Full quantitative module membership correlations ($MM$) and Student p-values ($p.MM$) across all modules for every feature.
-  * `output/network/module_eigengenes.csv`: Profile summaries (eigengenes) for each module across samples.
-  * `output/network/unmerged_module_eigengene_clustering.pdf`: Dendrogram of modules **before** merging.
-  * `output/network/module_eigengene_clustering.pdf`: Dendrogram of modules **after** merging.
-* **Goal**: Inspect the unmerged dendrogram to see if modules connect below a certain distance. Adjust your `mergeCutHeight` (e.g., `0.15` or `0.20`) to combine redundant modules.
+  * `output/network/module_membership.csv`: Module color & label assignments for each feature.
+  * `output/network/gene_module_membership.csv`: Quantitative module membership correlations ($MM$) and p-values ($p.MM$) across all modules.
+  * `output/network/module_eigengenes.csv`: Module profile summaries (eigengenes) per sample.
+  * `output/network/unmerged_module_eigengene_clustering.pdf`: Module dendrogram **before** merging.
+  * `output/network/module_eigengene_clustering.pdf`: Module dendrogram **after** merging.
+* **Goal**: Review dendrograms and adjust `mergeCutHeight` (e.g., `0.15` or `0.20`) to merge closely related modules.
 
----
-
-### Step 3: Module-Trait Correlation
-Correlates module eigengenes with metadata parameters and applies Benjamini-Hochberg FDR correction.
+#### Step 3: Module-Trait Correlation (`correlate`)
+Correlates module eigengenes with phenotypic parameters and applies Benjamini-Hochberg FDR correction.
 ```bash
-./wgcna-vip correlate --config wgcna_config_example.yaml
+./anemone correlate --config anemone_config_example.yaml
 ```
 * **Outputs**:
-  * `output/correlation/longform_module_trait_table.csv`: Table of correlations, raw p-values, and adjusted q-values.
-  * `output/correlation/module_trait_relationships.pdf`: Heatmap of module-trait relationships labeled with correlation coefficients, raw p-values, and adjusted q-values.
-* **Goal**: Identify which modules have a statistically significant relationship (q-value $< 0.05$) with your phenotypes.
+  * `output/correlation/longform_module_trait_table.csv`: Table of Pearson correlations, raw p-values, and adjusted q-values.
+  * `output/correlation/module_trait_relationships.pdf`: Heatmap of module-trait correlations labeled with correlation coefficients and q-values.
+* **Goal**: Identify statistically significant module-phenotype associations ($q < 0.05$).
 
----
-
-### Step 4: PLS-VIP Predictive Modeling
-Fits a PLS regression model predicting a metadata trait using only the features inside a correlated module, calculating Variable Importance in Projection (VIP) scores to extract key driving features.
+#### Step 4: PLS-VIP Predictive Modeling (`pls`)
+Fits Partial Least Squares (PLS) regression models for correlated module-trait pairs and calculates Variable Importance in Projection (VIP) scores for driver discovery.
 ```bash
-./wgcna-vip pls --config wgcna_config_example.yaml
+./anemone pls --config anemone_config_example.yaml
 ```
-* **Auto-Mode (Recommended)**: If the `pls_analyses` list is commented out in your config, the tool automatically scans the correlation table, detects all module-trait pairs with adjusted `q-value < 0.05` and absolute Pearson correlation `|Correlation| >= pls_min_cor` (defaults to `0.30`), and executes them sequentially.
-* **Manual Mode**: Uncomment and specify target pairs in `pls_analyses` to override auto-mode.
-* **R-squared Filter**: In both modes, the model is checked against the `pls_min_r2` threshold (defaults to `0.30`). If the maximum $R^2$ across all components does not exceed this value, the pair is skipped, matching your project's historical predictive criteria.
-* **Outputs** (generated for each pair, e.g., `blue` module predicting `alphaC`):
-  * `output/pls_vip/pls_blue_alphaC_vip_rankings.csv`: Ranked list of all features in the module sorted by VIP scores, annotated with Module Membership ($MM$), Trait Significance ($GS$), p-values, and taxonomic Genus if `taxonomy.csv` is provided.
-  * `output/pls_vip/pls_blue_alphaC_plots.pdf`: 3-page diagnostic report:
-    * **Page 1**: Module Membership ($MM$) vs. Trait Significance ($GS$) scatter plot (`verboseScatterplot`) with linear regression line and correlation statistics.
-    * **Page 2**: Eigengene dendrogram and adjacency heatmap incorporating the target metadata trait (`plotEigengeneNetworks`).
-    * **Page 3**: Left: Measured vs. Predicted PLS LOO fit plot ($R^2$ & RMSE). Right: Barplot of all driving features with `VIP > 1.0` labeled with Genus.
+* **Auto-Mode (Recommended)**: Scans the correlation table automatically, detecting all module-trait pairs with adjusted `q-value < 0.05` and `|Correlation| >= pls_min_cor`.
+* **Manual Mode**: Specify target pairs explicitly in `pls_analyses`.
+* **Outputs** (generated for each target pair, e.g., `blue` module predicting `alphaC`):
+  * `output/pls_vip/pls_blue_alphaC_vip_rankings.csv`: Ranked list of module features sorted by VIP score, with $MM$, $GS$, p-values, and taxonomic classifications.
+  * `output/pls_vip/pls_blue_alphaC_plots.pdf`: 3-page diagnostic report ($MM$ vs $GS$ scatterplot, eigengene network dendrogram/heatmap, and PLS LOO fit / VIP score barplot).
 
 ---
 
 ## Troubleshooting
 
-### locked PDF Files
-If an analysis script fails with `null device 1` or R warnings during plotting, the output PDF may be opened and locked by another viewer or program on the cluster. The tool automatically attempts to clear graphics devices and unlink old files, but you may need to close your PDF viewer to free the lock.
+### Locked PDF Files
+If R script execution produces `null device 1` warnings or plotting errors, an output PDF file may be locked by an external PDF viewer or cluster session. Ensure open PDF viewers are closed before re-running the command.

@@ -1,0 +1,14 @@
+name: anemone
+channels:
+  - conda-forge
+  - bioconductor
+  - defaults
+dependencies:
+  - python>=3.10
+  - pyyaml
+  - r-base>=4.0
+  - r-wgcna
+  - r-vegan
+  - r-pls
+  - r-optparse
+  - r-rcolorbrewer

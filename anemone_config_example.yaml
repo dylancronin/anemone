@@ -1,4 +1,4 @@
-# WGCNA and PLS-VIP Analysis Configuration Template
+# ANEMONE Analysis Configuration Template (WGCNA & PLS-VIP)
 
 # 1. Input File Paths (Relative to execution directory or absolute paths)
 counts_file: "data/counts.csv"       # Taxa/genes as rows, samples as columns
