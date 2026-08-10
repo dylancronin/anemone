@@ -27,7 +27,6 @@ graph TD
 ## Installation & Setup
 
 ### Prerequisites
-* **Linux / macOS** operating system
 * **Python**: `>= 3.8` (with `PyYAML` package)
 * **R**: `>= 4.0` (with Rscript available in PATH)
 * **Conda / Mamba** (recommended for managing environment dependencies)
