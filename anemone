@@ -44,8 +44,35 @@ def run_r_script(script_path, args):
         print(f"\nError executing process: {e}", file=sys.stderr)
         sys.exit(1)
 
+def find_scripts_dir(script_dir):
+    """
+    Locates the directory containing R scripts (threshold.R, network.R, correlate.R, pls.R).
+    Works whether anemone is executed directly from source or installed into Conda PATH.
+    """
+    candidates = [
+        # 1. Relative to the script file (e.g., ./scripts)
+        os.path.join(script_dir, "scripts"),
+        # 2. In current working directory
+        os.path.join(os.getcwd(), "scripts"),
+        # 3. Parent directory of script_dir (if installed in bin/)
+        os.path.join(os.path.dirname(script_dir), "scripts"),
+    ]
+    
+    # 4. Check paths in sys.path (resolves pip -e . editable installs)
+    for p in sys.path:
+        candidates.append(os.path.join(p, "scripts"))
+        candidates.append(p)
+        
+    for candidate in candidates:
+        if candidate and os.path.isdir(candidate):
+            if os.path.exists(os.path.join(candidate, "threshold.R")):
+                return candidate
+                
+    return os.path.join(script_dir, "scripts")
+
 def run_threshold(script_dir, config, outdir, counts_file, metadata_file, taxonomy_file, sample_id_col, min_prevalence_pct, transform, min_num_samples=None):
-    r_script = os.path.join(script_dir, "scripts", "threshold.R")
+    scripts_dir = find_scripts_dir(script_dir)
+    r_script = os.path.join(scripts_dir, "threshold.R")
     r_args = [
         "--counts", counts_file,
         "--metadata", metadata_file,
@@ -61,7 +88,8 @@ def run_threshold(script_dir, config, outdir, counts_file, metadata_file, taxono
     run_r_script(r_script, r_args)
 
 def run_network(script_dir, config, outdir, counts_file, metadata_file, taxonomy_file, sample_id_col, min_prevalence_pct, transform, min_num_samples=None):
-    r_script = os.path.join(script_dir, "scripts", "network.R")
+    scripts_dir = find_scripts_dir(script_dir)
+    r_script = os.path.join(scripts_dir, "network.R")
     power = str(config.get("power", 14))
     tom_type = config.get("TOMType", "signed")
     net_type = config.get("networkType", "signed")
@@ -88,7 +116,8 @@ def run_network(script_dir, config, outdir, counts_file, metadata_file, taxonomy
     run_r_script(r_script, r_args)
 
 def run_correlate(script_dir, config, outdir, metadata_file, sample_id_col):
-    r_script = os.path.join(script_dir, "scripts", "correlate.R")
+    scripts_dir = find_scripts_dir(script_dir)
+    r_script = os.path.join(scripts_dir, "correlate.R")
     traits = ",".join(config.get("traits", []))
     
     r_args = [
@@ -100,7 +129,8 @@ def run_correlate(script_dir, config, outdir, metadata_file, sample_id_col):
     run_r_script(r_script, r_args)
 
 def run_pls(script_dir, config, outdir, counts_file, metadata_file, taxonomy_file, sample_id_col, min_prevalence_pct, transform, min_num_samples=None):
-    r_script = os.path.join(script_dir, "scripts", "pls.R")
+    scripts_dir = find_scripts_dir(script_dir)
+    r_script = os.path.join(scripts_dir, "pls.R")
     power = str(config.get("power", 12))
     min_r2 = str(config.get("pls_min_r2", 0.30))
     min_cor = float(config.get("pls_min_cor", 0.30))
