@@ -34,9 +34,24 @@ graph TD
 
 ---
 
-### Step 1: Create Conda Environment via `environment.yml` (Recommended)
+### Step 1: Clone Repository
 
-You can create a self-contained Conda environment containing Python, R, and all required dependencies in a single step using `environment.yml`:
+Clone the repository and enter the project directory:
+
+```bash
+# Clone repository
+git clone https://github.com/dylancronin/anemone.git
+cd anemone
+
+# Grant execute permission to CLI script
+chmod +x anemone
+```
+
+---
+
+### Step 2: Create & Activate Conda Environment (Recommended)
+
+Create a self-contained Conda environment containing Python, R, and all required dependencies using `environment.yml`:
 
 ```bash
 # Create the conda environment
@@ -54,9 +69,9 @@ conda activate anemone
 
 ---
 
-### Step 2: Alternative R Package Installation (R Console)
+### Step 3: Alternative R Package Installation (R Console)
 
-If you prefer using your system R environment, install the required packages directly from CRAN and Bioconductor:
+If you prefer using your system R environment instead of Conda, install the required packages directly from CRAN and Bioconductor:
 
 ```R
 # Install BiocManager if not present
@@ -68,37 +83,6 @@ BiocManager::install("WGCNA")
 
 # Install CRAN dependencies
 install.packages(c("vegan", "pls", "optparse", "RColorBrewer", "yaml"))
-```
-
----
-
-### Step 3: Clone Repository & Setup Executable
-
-Clone the repository and ensure the `anemone` CLI script has execution permissions:
-
-```bash
-# Clone repository
-git clone https://github.com/your-username/anemone.git
-cd anemone
-
-# Grant execute permission to CLI script
-chmod +x anemone
-```
-
-#### Add `anemone` to System PATH (Optional)
-
-To execute `anemone` from any directory without specifying `./`, link it to `~/bin` or `/usr/local/bin`:
-
-```bash
-# Create local bin directory if it doesn't exist
-mkdir -p ~/bin
-
-# Create symbolic link
-ln -s $(pwd)/anemone ~/bin/anemone
-
-# Add ~/bin to PATH in bashrc/zshrc if not already present
-echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc
-source ~/.bashrc
 ```
 
 ---
