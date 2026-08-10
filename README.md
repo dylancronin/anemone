@@ -51,10 +51,10 @@ chmod +x anemone
 
 ### Step 2: Create & Activate Conda Environment (Recommended)
 
-Create a self-contained Conda environment containing Python, R, and all required dependencies using `environment.yml`:
+Create a self-contained Conda environment containing Python, R, and all required dependencies using `environment.yml`. This automatically installs `anemone` directly into the environment's `PATH`:
 
 ```bash
-# Create the conda environment
+# Create the conda environment (automatically installs anemone into environment PATH)
 conda env create -f environment.yml
 
 # Activate the environment

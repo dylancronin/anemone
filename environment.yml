@@ -12,3 +12,6 @@ dependencies:
   - r-pls
   - r-optparse
   - r-rcolorbrewer
+  - pip
+  - pip:
+    - -e .
