@@ -1,7 +1,7 @@
 name: anemone
 channels:
   - conda-forge
-  - bioconductor
+  - bioconda
   - defaults
 dependencies:
   - python>=3.10
