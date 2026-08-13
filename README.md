@@ -134,6 +134,8 @@ min_prevalence_pct: 10               # Keep taxa present in >= min_prevalence_pc
 # min_num_samples: 9                 # (Optional) Keep features present in > min_num_samples samples (strict inequality)
                                      # Bypasses min_prevalence_pct and replicates original Rmd filtering.
 transform: "hellinger"               # Preprocessing transformation: 'hellinger', 'relative', or 'none'
+exclude_samples:                     # (Optional) List of sample IDs to exclude from analysis (outlier removal)
+#   - "outlier_sample_1"
 
 # 4. Network Construction Parameters (WGCNA)
 power: 12                            # Soft-threshold power (choose after running 'threshold' step)
