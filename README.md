@@ -190,7 +190,7 @@ anemone threshold --config anemone_config_example.yaml
 * **Output**: `output/preprocess/thresholding_diagnostics.pdf`
   * **Page 1**: Sample outlier clustering dendrogram at your target prevalence.
   * **Subsequent Pages**: Comparative fit index and mean connectivity plots for each scanned prevalence.
-* **Goal**: Select a `min_prevalence_pct` (or absolute `min_num_samples`) and soft-thresholding `power` where scale-free fit ($R^2$) plateaus above `0.80`.
+* **Goal**: Select a `min_prevalence_pct` (or absolute `min_num_samples`) and soft-thresholding `power` where scale-free fit ($R^2$) plateaus above `0.80`. Identify and remove any potential outliers for the `exclude_samples` parameter in the config yaml.
 
 #### Step 2: Network Construction & Module Detection (`network`)
 Builds co-abundance networks, assigns features to color-coded modules, and calculates module eigengenes (MEs).
