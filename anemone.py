@@ -1,0 +1,378 @@
+#!/usr/bin/env python3
+"""
+anemone: A command-line orchestrator for WGCNA and PLS-VIP analyses.
+
+This script parses a YAML configuration file containing pathways and parameters,
+routes command-line subcommands (threshold, network, correlate, pls, run) to their 
+corresponding R scripts, and manages execution and real-time log output.
+"""
+
+import argparse
+import os
+import sys
+import yaml
+import subprocess
+
+def run_r_script(script_path, args):
+    """
+    Executes an R script as a subprocess, streaming its stdout/stderr 
+    output in real-time to the python console.
+    """
+    cmd = ["Rscript", script_path] + args
+    print(f"Executing: {' '.join(cmd)}\n")
+    try:
+        # Popen allows us to read stdout in real-time while the process executes
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,  # Merge stderr into stdout so they are interleaved chronologically
+            text=True,
+            bufsize=1                  # Line-buffered output
+        )
+        
+        # Read R output line-by-line in real-time
+        for line in process.stdout:
+            print(line, end="")
+            
+        process.wait()
+        
+        # Exit with process return code if script fails
+        if process.returncode != 0:
+            print(f"\nError: R script failed with exit code {process.returncode}.", file=sys.stderr)
+            sys.exit(process.returncode)
+    except Exception as e:
+        print(f"\nError executing process: {e}", file=sys.stderr)
+        sys.exit(1)
+
+def find_scripts_dir(script_dir):
+    """
+    Locates the directory containing R scripts (threshold.R, network.R, correlate.R, pls.R).
+    Works whether anemone is executed directly from source or installed into Conda PATH.
+    """
+    candidates = [
+        # 1. Relative to the script file (e.g., ./scripts)
+        os.path.join(script_dir, "scripts"),
+        # 2. In current working directory
+        os.path.join(os.getcwd(), "scripts"),
+        # 3. Parent directory of script_dir (if installed in bin/)
+        os.path.join(os.path.dirname(script_dir), "scripts"),
+        # 4. In sys.prefix/bin/scripts (resolves standard non-editable install)
+        os.path.join(sys.prefix, "bin", "scripts"),
+    ]
+    
+    # 5. Check paths in sys.path (resolves pip -e . editable installs)
+    for p in sys.path:
+        candidates.append(os.path.join(p, "scripts"))
+        candidates.append(p)
+        
+    for candidate in candidates:
+        if candidate and os.path.isdir(candidate):
+            if os.path.exists(os.path.join(candidate, "threshold.R")):
+                return candidate
+                
+    return os.path.join(script_dir, "scripts")
+
+def run_threshold(script_dir, config, outdir, counts_file, metadata_file, taxonomy_file, sample_id_col, min_prevalence_pct, transform, min_num_samples=None):
+    scripts_dir = find_scripts_dir(script_dir)
+    r_script = os.path.join(scripts_dir, "threshold.R")
+    r_args = [
+        "--counts", counts_file,
+        "--metadata", metadata_file,
+        "--sample_id_col", sample_id_col,
+        "--outdir", outdir,
+        "--min_prevalence_pct", min_prevalence_pct,
+        "--transform", transform
+    ]
+    if min_num_samples is not None:
+        r_args += ["--min_num_samples", str(min_num_samples)]
+    if taxonomy_file:
+        r_args += ["--taxonomy", taxonomy_file]
+    run_r_script(r_script, r_args)
+
+def run_network(script_dir, config, outdir, counts_file, metadata_file, taxonomy_file, sample_id_col, min_prevalence_pct, transform, min_num_samples=None):
+    scripts_dir = find_scripts_dir(script_dir)
+    r_script = os.path.join(scripts_dir, "network.R")
+    power = str(config.get("power", 14))
+    tom_type = config.get("TOMType", "signed")
+    net_type = config.get("networkType", "signed")
+    merge_cut = str(config.get("mergeCutHeight", 0.01))
+    max_block = str(config.get("maxBlockSize", 1800))
+    
+    r_args = [
+        "--counts", counts_file,
+        "--metadata", metadata_file,
+        "--sample_id_col", sample_id_col,
+        "--outdir", outdir,
+        "--min_prevalence_pct", min_prevalence_pct,
+        "--transform", transform,
+        "--power", power,
+        "--TOMType", tom_type,
+        "--networkType", net_type,
+        "--mergeCutHeight", merge_cut,
+        "--maxBlockSize", max_block
+    ]
+    if min_num_samples is not None:
+        r_args += ["--min_num_samples", str(min_num_samples)]
+    if taxonomy_file:
+        r_args += ["--taxonomy", taxonomy_file]
+    run_r_script(r_script, r_args)
+
+def run_correlate(script_dir, config, outdir, metadata_file, sample_id_col):
+    scripts_dir = find_scripts_dir(script_dir)
+    r_script = os.path.join(scripts_dir, "correlate.R")
+    traits = ",".join(config.get("traits", []))
+    
+    r_args = [
+        "--metadata", metadata_file,
+        "--sample_id_col", sample_id_col,
+        "--outdir", outdir,
+        "--traits", traits
+    ]
+    run_r_script(r_script, r_args)
+
+def run_pls(script_dir, config, outdir, counts_file, metadata_file, taxonomy_file, sample_id_col, min_prevalence_pct, transform, min_num_samples=None):
+    scripts_dir = find_scripts_dir(script_dir)
+    r_script = os.path.join(scripts_dir, "pls.R")
+    power = str(config.get("power", 12))
+    min_r2 = str(config.get("pls_min_r2", 0.30))
+    min_cor = float(config.get("pls_min_cor", 0.30))
+    
+    pls_analyses = config.get("pls_analyses", [])
+    
+    # If pls_analyses is empty/omitted, auto-detect significant positive correlations (q-value < 0.05 and r >= min_cor)
+    if not pls_analyses:
+        longform_path = os.path.join(outdir, "correlation", "longform_module_trait_table.csv")
+        if os.path.exists(longform_path):
+            print(f"No target analyses specified. Automatically loading module-trait pairs with q-value < 0.05 and Correlation >= {min_cor} from: {longform_path}")
+            import csv
+            try:
+                with open(longform_path, mode='r') as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        p_adj = float(row.get('p.adj', 1.0))
+                        correlation = float(row.get('Correlation', 0.0))
+                        if p_adj < 0.05 and correlation >= min_cor:
+                            # Strip 'ME' prefix from module name if present (e.g., MEblue -> blue)
+                            mod_name = row.get('Module', '')
+                            if mod_name.startswith('ME'):
+                                mod_name = mod_name[2:]
+                            # Skip 'grey' module as it represents unassigned genes/noise
+                            if mod_name.lower() == 'grey':
+                                continue
+                            pls_analyses.append({
+                                "module": mod_name,
+                                "parameter": row.get('Metadata_Parameter')
+                            })
+            except Exception as e:
+                print(f"Error reading correlation table: {e}", file=sys.stderr)
+        else:
+            print("Error: No pls_analyses defined in configuration, and no longform_module_trait_table.csv found.", file=sys.stderr)
+            print("Please define pls_analyses in config or run 'correlate' step first.", file=sys.stderr)
+            sys.exit(1)
+            
+    if not pls_analyses:
+        print("No module-parameter pairs met the significance and correlation thresholds. Skipping PLS analysis.")
+        return
+        
+    print(f"Found {len(pls_analyses)} target pairs to analyze with PLS-VIP.")
+    
+    # Loop through each target analysis block and execute pls.R sequentially
+    for idx, analysis in enumerate(pls_analyses, 1):
+        module = analysis.get("module")
+        parameter = analysis.get("parameter")
+        if not module or not parameter:
+            print(f"Skipping invalid PLS analysis block #{idx}: {analysis}", file=sys.stderr)
+            continue
+            
+        print(f"\n======================================================================")
+        print(f"Running PLS-VIP ({idx}/{len(pls_analyses)}): Module '{module}' vs Trait '{parameter}'")
+        print(f"======================================================================")
+        
+        r_args = [
+            "--counts", counts_file,
+            "--metadata", metadata_file,
+            "--sample_id_col", sample_id_col,
+            "--outdir", outdir,
+            "--min_prevalence_pct", min_prevalence_pct,
+            "--transform", transform,
+            "--power", power,
+            "--module", module,
+            "--parameter", parameter,
+            "--min_r2", min_r2
+        ]
+        if min_num_samples is not None:
+            r_args += ["--min_num_samples", str(min_num_samples)]
+        if taxonomy_file:
+            r_args += ["--taxonomy", taxonomy_file]
+            
+        run_r_script(r_script, r_args)
+
+def filter_file(file_path, sample_id_col, exclude_samples, is_counts, outdir):
+    """
+    Reads a CSV or TSV file, filters out columns (if counts) or rows (if metadata)
+    associated with sample IDs in exclude_samples, and writes the filtered file
+    to outdir. Returns the path of the filtered file.
+    """
+    import csv
+    if not file_path or not os.path.exists(file_path):
+        return file_path
+        
+    # Detect delimiter (tab for .tsv/txt, comma otherwise)
+    with open(file_path, 'r', newline='') as f:
+        first_line = f.readline()
+    delim = '\t' if '\t' in first_line else ','
+    
+    base = os.path.basename(file_path)
+    filtered_path = os.path.join(outdir, f"filtered_{base}")
+    
+    with open(file_path, 'r', newline='') as f_in, open(filtered_path, 'w', newline='') as f_out:
+        reader = csv.reader(f_in, delimiter=delim)
+        writer = csv.writer(f_out, delimiter=delim)
+        
+        try:
+            headers = next(reader)
+        except StopIteration:
+            return file_path
+            
+        if is_counts:
+            # Counts matrix: Taxa/genes as rows, samples as columns.
+            exclude_samples_set = {s.strip() for s in exclude_samples}
+            exclude_indices = [i for i, h in enumerate(headers) if h.strip() in exclude_samples_set]
+            
+            if not exclude_indices:
+                writer.writerow(headers)
+                writer.writerows(reader)
+            else:
+                new_headers = [h for i, h in enumerate(headers) if i not in exclude_indices]
+                writer.writerow(new_headers)
+                for row in reader:
+                    new_row = [val for i, val in enumerate(row) if i not in exclude_indices]
+                    writer.writerow(new_row)
+        else:
+            # Metadata table: Samples as rows, metadata columns as traits.
+            headers_stripped = [h.strip() for h in headers]
+            try:
+                sample_col_idx = headers_stripped.index(sample_id_col.strip())
+            except ValueError:
+                sample_col_idx = 0
+                
+            exclude_samples_set = {s.strip() for s in exclude_samples}
+            writer.writerow(headers)
+            for row in reader:
+                if len(row) > sample_col_idx and row[sample_col_idx].strip() in exclude_samples_set:
+                    continue
+                writer.writerow(row)
+                
+    return filtered_path
+
+def main():
+    # Find the directory where this script is located.
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    
+    # Set up CLI parser requiring a YAML configuration file path
+    parent_parser = argparse.ArgumentParser(add_help=False)
+    parent_parser.add_argument(
+        "--config",
+        required=True,
+        help="Path to the YAML configuration file"
+    )
+    
+    parser = argparse.ArgumentParser(
+        description="anemone: CLI tool for WGCNA and PLS-VIP analysis"
+    )
+    
+    # Add subparsers for each step of the pipeline
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    
+    # Subcommands
+    subparsers.add_parser(
+        "threshold",
+        parents=[parent_parser],
+        help="Perform prevalence filtering and plot soft-threshold powers to determine scale-free topology fit"
+    )
+    
+    subparsers.add_parser(
+        "network",
+        parents=[parent_parser],
+        help="Construct the co-expression network and identify modules"
+    )
+    
+    subparsers.add_parser(
+        "correlate",
+        parents=[parent_parser],
+        help="Correlate module eigengenes with metadata traits"
+    )
+    
+    subparsers.add_parser(
+        "pls",
+        parents=[parent_parser],
+        help="Run PLS regression and compute VIP scores for specified module/parameter pairs"
+    )
+    
+    subparsers.add_parser(
+        "run",
+        parents=[parent_parser],
+        help="Run all steps in the pipeline sequentially end-to-end"
+    )
+    
+    args = parser.parse_args()
+    
+    # 1. Parse and validate the YAML configuration file
+    if not os.path.exists(args.config):
+        print(f"Error: Configuration file '{args.config}' not found.", file=sys.stderr)
+        sys.exit(1)
+        
+    try:
+        with open(args.config, 'r') as f:
+            config = yaml.safe_load(f)
+    except Exception as e:
+        print(f"Error reading configuration file: {e}", file=sys.stderr)
+        sys.exit(1)
+        
+    # 2. Extract configuration variables
+    outdir = config.get("output_dir", "output")
+    os.makedirs(outdir, exist_ok=True)
+    
+    counts_file = config.get("counts_file", "")
+    metadata_file = config.get("metadata_file", "")
+    taxonomy_file = config.get("taxonomy_file", "")
+    sample_id_col = config.get("sample_id_col", "sample_id")
+    min_prevalence_pct = str(config.get("min_prevalence_pct", 10))
+    transform = config.get("transform", "hellinger")
+    min_num_samples = config.get("min_num_samples")
+    
+    # Apply sample exclusions if defined in config
+    exclude_samples = config.get("exclude_samples", [])
+    if exclude_samples:
+        if isinstance(exclude_samples, str):
+            exclude_samples = [s.strip() for s in exclude_samples.split(",") if s.strip()]
+        print(f"Applying sample exclusions: {exclude_samples}")
+        counts_file = filter_file(counts_file, sample_id_col, exclude_samples, is_counts=True, outdir=outdir)
+        metadata_file = filter_file(metadata_file, sample_id_col, exclude_samples, is_counts=False, outdir=outdir)
+    
+    # 3. Route to helpers
+    if args.command == "threshold":
+        run_threshold(script_dir, config, outdir, counts_file, metadata_file, taxonomy_file, sample_id_col, min_prevalence_pct, transform, min_num_samples)
+    elif args.command == "network":
+        run_network(script_dir, config, outdir, counts_file, metadata_file, taxonomy_file, sample_id_col, min_prevalence_pct, transform, min_num_samples)
+    elif args.command == "correlate":
+        run_correlate(script_dir, config, outdir, metadata_file, sample_id_col)
+    elif args.command == "pls":
+        run_pls(script_dir, config, outdir, counts_file, metadata_file, taxonomy_file, sample_id_col, min_prevalence_pct, transform, min_num_samples)
+    elif args.command == "run":
+        print("\n>>> STARTING STEP 1/4: Thresholding Diagnostics <<<\n")
+        run_threshold(script_dir, config, outdir, counts_file, metadata_file, taxonomy_file, sample_id_col, min_prevalence_pct, transform, min_num_samples)
+        
+        print("\n>>> STARTING STEP 2/4: Network Construction <<<\n")
+        run_network(script_dir, config, outdir, counts_file, metadata_file, taxonomy_file, sample_id_col, min_prevalence_pct, transform, min_num_samples)
+        
+        print("\n>>> STARTING STEP 3/4: Module-Trait Correlation <<<\n")
+        run_correlate(script_dir, config, outdir, metadata_file, sample_id_col)
+        
+        print("\n>>> STARTING STEP 4/4: PLS-VIP Analysis <<<\n")
+        run_pls(script_dir, config, outdir, counts_file, metadata_file, taxonomy_file, sample_id_col, min_prevalence_pct, transform, min_num_samples)
+        
+        print("\n>>> PIPELINE EXECUTION COMPLETED SUCCESSFULLY! <<<\n")
+
+if __name__ == "__main__":
+    main()

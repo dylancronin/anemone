@@ -54,8 +54,17 @@ if (file.exists(prep_path)) {
   load(prep_path) # Loads data_transformed, counts, metadata, otumat_filtered
 } else {
   cat("No preprocessed data cache found. Preprocessing raw files...\n")
-  counts <- read.csv(counts_file, row.names = 1, check.names = FALSE)
-  metadata <- read.csv(metadata_file, row.names = 1, check.names = FALSE)
+  read_auto <- function(file_path, ...) {
+    ext <- tools::file_ext(file_path)
+    if (tolower(ext) %in% c("tsv", "txt")) {
+      read.delim(file_path, sep = "\t", ...)
+    } else {
+      read.csv(file_path, sep = ",", ...)
+    }
+  }
+
+  counts <- read_auto(counts_file, row.names = 1, check.names = FALSE)
+  metadata <- read_auto(metadata_file, row.names = 1, check.names = FALSE)
   if (sample_id_col %in% colnames(metadata)) {
     rownames(metadata) <- metadata[[sample_id_col]]
   }

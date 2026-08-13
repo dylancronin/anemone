@@ -49,8 +49,17 @@ if (file.exists(prep_path)) {
     stop("Error: counts and metadata are required since no preprocessed cache was found.")
   }
   
-  counts <- read.csv(opt$counts, row.names = 1, check.names = FALSE)
-  metadata <- read.csv(opt$metadata, row.names = 1, check.names = FALSE)
+  read_auto <- function(file_path, ...) {
+    ext <- tools::file_ext(file_path)
+    if (tolower(ext) %in% c("tsv", "txt")) {
+      read.delim(file_path, sep = "\t", ...)
+    } else {
+      read.csv(file_path, sep = ",", ...)
+    }
+  }
+
+  counts <- read_auto(opt$counts, row.names = 1, check.names = FALSE)
+  metadata <- read_auto(opt$metadata, row.names = 1, check.names = FALSE)
   if (opt$sample_id_col %in% colnames(metadata)) {
     rownames(metadata) <- metadata[[opt$sample_id_col]]
   }

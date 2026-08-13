@@ -38,9 +38,18 @@ suppressPackageStartupMessages({
   library(vegan)
 })
 
+read_auto <- function(file_path, ...) {
+  ext <- tools::file_ext(file_path)
+  if (tolower(ext) %in% c("tsv", "txt")) {
+    read.delim(file_path, sep = "\t", ...)
+  } else {
+    read.csv(file_path, sep = ",", ...)
+  }
+}
+
 cat("Loading input datasets...\n")
-counts <- read.csv(counts_file, row.names = 1, check.names = FALSE)
-metadata <- read.csv(metadata_file, row.names = 1, check.names = FALSE)
+counts <- read_auto(counts_file, row.names = 1, check.names = FALSE)
+metadata <- read_auto(metadata_file, row.names = 1, check.names = FALSE)
 
 if (sample_id_col %in% colnames(metadata)) {
   rownames(metadata) <- metadata[[sample_id_col]]
