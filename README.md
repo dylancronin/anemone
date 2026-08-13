@@ -201,7 +201,7 @@ anemone network --config anemone_config_example.yaml
   * `output/network/module_eigengenes.csv`: Module profile summaries (eigengenes) per sample.
   * `output/network/unmerged_module_eigengene_clustering.pdf`: Module dendrogram **before** merging.
   * `output/network/module_eigengene_clustering.pdf`: Module dendrogram **after** merging.
-* **Goal**: Review dendrograms and adjust `mergeCutHeight` (e.g., `0.15` or `0.20`) to merge closely related modules.
+* **Note**: Review dendrograms and adjust `mergeCutHeight` (e.g., `0.15` or `0.20`) to merge closely related modules.
 
 #### Step 3: Module-Trait Correlation (`correlate`)
 Correlates module eigengenes with phenotypic parameters and applies Benjamini-Hochberg FDR correction.
